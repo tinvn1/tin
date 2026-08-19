@@ -1,0 +1,158 @@
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local Remote = ReplicatedStorage:WaitForChild("RuneWeaponSkillRemote")
+
+local isSpammingMeteo = false
+local meteoDelay = 0.1
+
+-- Hàm giải nén dữ liệu x, y rút gọn
+local function unpackPattern(data)
+	local pattern = {}
+	for i = 1, #data, 2 do
+		table.insert(pattern, {x = data[i], y = data[i+1]})
+	end
+	return pattern
+end
+
+-- Tọa độ x, y dạng nén [x1, y1, x2, y2,...]
+local iceSwordData = {
+	-0.493,0.274, -0.486,0.286, -0.479,0.305, -0.466,0.318, -0.439,0.367, -0.419,0.392, -0.399,0.428, -0.385,0.459, -0.372,0.489, -0.345,0.543,
+	-0.332,0.561, -0.326,0.579, -0.319,0.591, -0.313,0.603, -0.306,0.614, -0.294,0.626, -0.287,0.638, -0.269,0.608, -0.252,0.591, -0.240,0.561,
+	-0.216,0.525, -0.180,0.459, -0.150,0.367, -0.126,0.318, -0.107,0.255, -0.089,0.185, -0.076,0.128, -0.051,-0.008, -0.039,-0.061, -0.026,-0.155,
+	-0.013,-0.223, -0.006,-0.237, 0,-0.250, 0.006,-0.230, 0.019,-0.182, 0.019,-0.155, 0.032,-0.088, 0.039,-0.048, 0.045,-0.008, 0.051,0.024,
+	0.064,0.089, 0.083,0.160, 0.089,0.192, 0.101,0.224, 0.114,0.242, 0.132,0.268, 0.139,0.280, 0.151,0.293, 0.164,0.305, 0.176,0.305,
+	0.195,0.305, 0.208,0.299, 0.227,0.286, 0.240,0.274, 0.253,0.255, 0.266,0.242, 0.279,0.230, 0.292,0.217, 0.306,0.185, 0.346,0.115,
+	0.366,0.083, 0.387,0.043, 0.408,0.004, 0.423,-0.061, 0.431,-0.094, 0.439,-0.135, 0.440,-0.162, 0.441,-0.175, 0.441,-0.196
+}
+
+local starFireData = {
+	-0.217,0.850, -0.225,0.836, -0.230,0.822, -0.238,0.779, -0.243,0.746, -0.252,0.688, -0.261,0.658, -0.265,0.629, -0.279,0.569, -0.288,0.543,
+	-0.292,0.524, -0.297,0.501, -0.301,0.490, -0.305,0.478, -0.306,0.467, -0.322,0.463, -0.361,0.490, -0.385,0.501, -0.444,0.524, -0.480,0.539,
+	-0.507,0.546, -0.535,0.554, -0.563,0.562, -0.583,0.562, -0.602,0.565, -0.614,0.565, -0.626,0.565, -0.638,0.565, -0.650,0.565, -0.675,0.558,
+	-0.687,0.554, -0.703,0.546, -0.716,0.543, -0.728,0.539, -0.737,0.524, -0.738,0.505, -0.731,0.490, -0.728,0.474, -0.702,0.444, -0.687,0.425,
+	-0.649,0.386, -0.606,0.347, -0.583,0.324, -0.536,0.273, -0.509,0.249, -0.485,0.225, -0.461,0.201, -0.442,0.173, -0.422,0.149, -0.406,0.120,
+	-0.391,0.092, -0.355,0.022, -0.328,-0.043, -0.300,-0.102, -0.288,-0.127, -0.276,-0.153, -0.251,-0.191, -0.239,-0.208, -0.230,-0.217, -0.218,-0.226, -0.205,-0.230
+}
+
+local meteoData = {
+	-0.343,-0.251, -0.363,-0.251, -0.376,-0.237, -0.389,-0.223, -0.396,-0.210, -0.408,-0.183, -0.434,-0.122, -0.446,-0.081, -0.490,0.011, -0.527,0.110,
+	-0.539,0.169, -0.557,0.215, -0.580,0.306, -0.592,0.344, -0.610,0.402, -0.609,0.421, -0.608,0.465, -0.606,0.503, -0.606,0.522, -0.605,0.541,
+	-0.598,0.572, -0.584,0.597, -0.571,0.610, -0.544,0.641, -0.518,0.659, -0.486,0.672, -0.460,0.684, -0.421,0.690, -0.402,0.696, -0.363,0.702,
+	-0.344,0.702, -0.319,0.702, -0.274,0.702, -0.255,0.690, -0.223,0.678, -0.204,0.672, -0.185,0.653, -0.128,0.622, -0.102,0.597, -0.070,0.572,
+	-0.025,0.528, 0.006,0.503, 0.032,0.472, 0.058,0.440, 0.084,0.408, 0.110,0.370, 0.136,0.325, 0.196,0.222, 0.230,0.169, 0.263,0.124,
+	0.324,0.025, 0.352,-0.021, 0.386,-0.075, 0.414,-0.115, 0.428,-0.142, 0.462,-0.196, 0.470,-0.223, 0.477,-0.244, 0.484,-0.264, 0.485,-0.299,
+	0.486,-0.312, 0.473,-0.333, 0.473,-0.347, 0.460,-0.354, 0.439,-0.361, 0.419,-0.361, 0.406,-0.361, 0.372,-0.361, 0.331,-0.354, 0.304,-0.340,
+	0.277,-0.333, 0.243,-0.319, 0.215,-0.306, 0.161,-0.278, 0.127,-0.271, 0.087,-0.251, 0.047,-0.237, 0.026,-0.223, 0.013,-0.217, 0,-0.203,
+	-0.013,-0.203, -0.026,-0.189, -0.040,-0.176, -0.060,-0.149, -0.080,-0.115, -0.093,-0.108, -0.106,-0.081, -0.119,-0.068, -0.126,-0.048, -0.132,-0.028,
+	-0.139,-0.014, -0.146,-0.001, -0.145,0.025, -0.152,0.044, -0.139,0.051, -0.125,0.051, -0.086,0.031, -0.066,0.018, -0.006,-0.028, 0.033,-0.061,
+	0.060,-0.081, 0.073,-0.088, 0.086,-0.101, 0.100,-0.115, 0.113,-0.128
+}
+
+-- Pattern dạng đã unpack
+local iceSwordPattern = unpackPattern(iceSwordData)
+local starFirePattern = unpackPattern(starFireData)
+local meteoPattern = unpackPattern(meteoData)
+
+local function getCharacterCFrame()
+	local character = LocalPlayer.Character
+	if character and character:FindFirstChild("HumanoidRootPart") then
+		return character.HumanoidRootPart.CFrame
+	end
+	return CFrame.new()
+end
+
+local function castStarFire()
+	if Remote then
+		pcall(function()
+			Remote:InvokeServer("TryCast", "StarFire", {starFirePattern}, getCharacterCFrame())
+		end)
+	end
+end
+
+local function startMeteoSpam()
+	if isSpammingMeteo then return end
+	isSpammingMeteo = true
+	task.spawn(function()
+		while isSpammingMeteo do
+			if Remote then
+				pcall(function()
+					Remote:InvokeServer("TryCast", "Meteo", {meteoPattern}, getCharacterCFrame())
+				end)
+			end
+			task.wait(meteoDelay)
+		end
+	end)
+end
+
+local function stopMeteoSpam()
+	isSpammingMeteo = false
+end
+
+local function castIceSword()
+	if Remote then
+		pcall(function()
+			Remote:InvokeServer("TryCast", "IceSword", {iceSwordPattern}, getCharacterCFrame())
+		end)
+	end
+end
+
+-- UI Mobile
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local screenGui = playerGui:FindFirstChild("SkillButtonsGui") or Instance.new("ScreenGui")
+screenGui.Name = "SkillButtonsGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 180, 0, 60)
+frame.Position = UDim2.new(0.5, -90, 0.8, 0)
+frame.BackgroundTransparency = 1
+frame.Parent = screenGui
+
+local function createButton(name, text, position)
+	local btn = Instance.new("TextButton")
+	btn.Name = name
+	btn.Text = text
+	btn.Size = UDim2.new(0, 50, 0, 50)
+	btn.Position = position
+	btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.TextSize = 20
+	btn.Font = Enum.Font.SourceSansBold
+	btn.Parent = frame
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 12)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(255, 255, 255)
+	stroke.Thickness = 2
+	stroke.Parent = btn
+
+	return btn
+end
+
+local btn1 = createButton("Btn1", "1", UDim2.new(0, 0, 0, 0))
+local btn2 = createButton("Btn2", "2", UDim2.new(0, 65, 0, 0))
+local btn3 = createButton("Btn3", "3", UDim2.new(0, 130, 0, 0))
+
+btn1.MouseButton1Click:Connect(castStarFire)
+btn2.MouseButton1Down:Connect(startMeteoSpam)
+btn2.MouseButton1Up:Connect(stopMeteoSpam)
+btn3.MouseButton1Click:Connect(castIceSword)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.One then castStarFire() end
+	if input.KeyCode == Enum.KeyCode.Two then startMeteoSpam() end
+	if input.KeyCode == Enum.KeyCode.Three then castIceSword() end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.Two then stopMeteoSpam() end
+end)
+ 
