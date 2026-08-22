@@ -13,7 +13,7 @@ return function(Window, Fluent)
     local SelectedRarities = {}
     local SelectedStats = {}
     local AutoPickupEnabled = false
-    local PickupRadius = 30
+    local PickupRadius = 40
 
     -- UI Elements
     PickupTab:AddToggle("ToggleAutoPickup", {
@@ -28,7 +28,7 @@ return function(Window, Fluent)
         Title = "Khoảng cách nhặt (Studs)",
         Min = 10,
         Max = 100,
-        Default = 30,
+        Default = 40,
         Rounding = 0,
         Callback = function(Value)
             PickupRadius = Value
@@ -55,85 +55,47 @@ return function(Window, Fluent)
         end
     })
 
-    -- Hàm kiểm tra điều kiện Rarity & Stats
-    local function passesFilter(item)
-        local textContent = ""
+    -- Hàm ép buộc kích hoạt ProximityPrompt (Bypass triệt để)
+    local function forceTriggerPrompt(prompt)
+        if not prompt or not prompt.Enabled then return end
+
+        -- Bỏ qua thời gian giữ phím E
+        local originalHold = prompt.HoldDuration
+        prompt.HoldDuration = 0
+
+        -- Kích hoạt theo 3 cách song song
+        pcall(function() fireproximityprompt(prompt) end)
         
-        -- Quét thông tin chữ hiển thị trên BillboardGui / SurfaceGui
-        for _, descendant in pairs(item:GetDescendants()) do
-            if descendant:IsA("TextLabel") or descendant:IsA("TextButton") then
-                textContent = textContent .. " " .. string.lower(descendant.Text)
+        pcall(function()
+            if prompt.InputHoldBegin then
+                prompt:InputHoldBegin()
+                task.wait(0.02)
+                prompt:InputHoldEnd()
             end
-        end
+        end)
 
-        -- Lọc theo Rarity nếu có chọn
-        local hasRarityFilter = false
-        for _, _ in pairs(SelectedRarities) do hasRarityFilter = true break end
-
-        if hasRarityFilter then
-            local matchedRarity = false
-            for rarityName, isSelected in pairs(SelectedRarities) do
-                if isSelected and string.find(textContent, string.lower(rarityName)) then
-                    matchedRarity = true
-                    break
-                end
-            end
-            if not matchedRarity then return false end
-        end
-
-        -- Lọc theo Stats nếu có chọn
-        local hasStatFilter = false
-        for _, _ in pairs(SelectedStats) do hasStatFilter = true break end
-
-        if hasStatFilter then
-            local matchedStat = false
-            for statName, isSelected in pairs(SelectedStats) do
-                if isSelected and string.find(textContent, string.lower(statName)) then
-                    matchedStat = true
-                    break
-                end
-            end
-            if not matchedStat then return false end
-        end
-
-        return true
+        prompt.HoldDuration = originalHold
     end
 
-    -- Hàm nhặt vật phẩm bằng ProximityPrompt hoặc Touch
-    local function tryPickup(promptOrPart, hrp)
-        if promptOrPart:IsA("ProximityPrompt") then
-            if promptOrPart.Enabled then
-                -- Kích hoạt nút bấm E tự động
-                fireproximityprompt(promptOrPart)
-            end
-        elseif promptOrPart:IsA("BasePart") and promptOrPart:FindFirstChild("TouchInterest") then
-            firetouchinterest(hrp, promptOrPart, 0)
-            firetouchinterest(hrp, promptOrPart, 1)
-        end
-    end
-
-    -- Vòng lặp nhặt đồ tự động
+    -- Vòng lặp nhặt đồ
     task.spawn(function()
-        while task.wait(0.1) do
+        while task.wait(0.05) do
             if AutoPickupEnabled then
                 local player = game.Players.LocalPlayer
                 local character = player and player.Character
                 local hrp = character and character:FindFirstChild("HumanoidRootPart")
 
                 if hrp then
-                    -- Quét tất cả ProximityPrompt có trong Workspace
-                    for _, prompt in pairs(workspace:GetDescendants()) do
-                        if prompt:IsA("ProximityPrompt") then
-                            local parentPart = prompt.Parent
-                            if parentPart and parentPart:IsA("BasePart") then
-                                local dist = (parentPart.Position - hrp.Position).Magnitude
+                    for _, obj in pairs(workspace:GetDescendants()) do
+                        if obj:IsA("ProximityPrompt") then
+                            local part = obj.Parent
+                            if part and part:IsA("BasePart") then
+                                local dist = (part.Position - hrp.Position).Magnitude
                                 if dist <= PickupRadius then
-                                    if passesFilter(parentPart.Parent) or passesFilter(parentPart) then
-                                        fireproximityprompt(prompt)
-                                    end
+                                    forceTriggerPrompt(obj)
                                 end
                             else
-                                fireproximityprompt(prompt)
+                                forceTriggerPrompt(obj)
                             end
                         end
                     end
