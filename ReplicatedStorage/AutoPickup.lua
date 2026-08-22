@@ -95,29 +95,33 @@ return function(Window, Fluent)
     end
 
     local function triggerPrompt(prompt)
-        if not prompt or not prompt.Enabled then return end
-        local origHold = prompt.HoldDuration
+        if not prompt then return end
+        
+        -- Bypass các giới hạn của Game ép ProximityPrompt kích hoạt ngay lập tức
         prompt.HoldDuration = 0
+        prompt.RequiresLineOfSight = false
+        prompt.MaxActivationDistance = math.huge
+        prompt.Enabled = true
 
-        pcall(function() fireproximityprompt(prompt) end)
-        pcall(function()
-            if prompt.InputHoldBegin then
-                prompt:InputHoldBegin()
-                task.wait(0.01)
-                prompt:InputHoldEnd()
-            end
-        end)
-
-        prompt.HoldDuration = origHold
+        if fireproximityprompt then
+            pcall(function() fireproximityprompt(prompt) end)
+        else
+            pcall(function()
+                if prompt.InputHoldBegin then
+                    prompt:InputHoldBegin()
+                    task.wait(0.01)
+                    prompt:InputHoldEnd()
+                end
+            end)
+        end
     end
 
     -- Vòng lặp tự động hủy nếu script bị load lại
     task.spawn(function()
         while task.wait(0.05) do
-            -- Nếu DunkHub bị load lại (State bị reset) thì thoát vòng lặp cũ ngay lập tức
             if not _G.DunkHubLoaded then break end
 
-            if _G.DunkHubState.AutoPickup then
+            if _G.DunkHubState and _G.DunkHubState.AutoPickup then
                 local player = game.Players.LocalPlayer
                 local character = player and player.Character
                 local hrp = character and character:FindFirstChild("HumanoidRootPart")
@@ -126,9 +130,16 @@ return function(Window, Fluent)
                     for _, obj in pairs(workspace:GetDescendants()) do
                         if obj:IsA("ProximityPrompt") then
                             local itemModel = obj:FindFirstAncestorOfClass("Model") or obj.Parent
-                            local part = obj.Parent:IsA("BasePart") and obj.Parent or hrp
+                            
+                            -- Tìm vị trí Part thực tế của món đồ để đo khoảng cách
+                            local targetPart = nil
+                            if obj.Parent and obj.Parent:IsA("BasePart") then
+                                targetPart = obj.Parent
+                            elseif itemModel then
+                                targetPart = itemModel:FindFirstChildWhichIsA("BasePart", true)
+                            end
 
-                            if itemModel and (part.Position - hrp.Position).Magnitude <= PickupRadius then
+                            if targetPart and (targetPart.Position - hrp.Position).Magnitude <= PickupRadius then
                                 if passesFilter(itemModel) then
                                     triggerPrompt(obj)
                                 end
