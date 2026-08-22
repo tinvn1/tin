@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
 
 local Remote = ReplicatedStorage:WaitForChild("RuneWeaponSkillRemote", 10)
 
@@ -225,7 +226,90 @@ Players.LocalPlayer.CharacterAdded:Connect(function(char)
 end)
 
 -- ==========================================
--- 5. WORKSPACE FILE CONFIG SYSTEM (DELTA / POTASSIUM)
+-- 5. CƠ CHẾ DÒ & KẾT NỐI SERVER
+-- ==========================================
+local CustomVipCode = ""
+
+local function findAndJoinMyServer()
+    local placeId = game.PlaceId
+
+    if CustomVipCode ~= "" then
+        OrionLib:MakeNotification({
+            Name = "VIP Server System",
+            Content = "Đang kết nối bằng VIP Link / Code...",
+            Image = "rbxassetid://4483345998",
+            Time = 3
+        })
+
+        local linkCode = CustomVipCode:match("privateServerLinkCode=([%d%a%-]+)") 
+                      or CustomVipCode:match("code=([%d%a%-]+)") 
+                      or CustomVipCode
+
+        local launchUrl = string.format("roblox://placeId=%d&linkCode=%s", placeId, linkCode)
+        
+        local success = pcall(function()
+            if setclipboard then setclipboard(launchUrl) end
+            game:GetService("GuiService"):OpenBrowserWindow(launchUrl)
+        end)
+
+        if not success then
+            pcall(function()
+                TeleportService:TeleportToPlaceInstance(placeId, linkCode, Players.LocalPlayer)
+            end)
+        end
+        return
+    end
+
+    OrionLib:MakeNotification({
+        Name = "VIP Server System",
+        Content = "Đang quét danh sách Server...",
+        Image = "rbxassetid://4483345998",
+        Time = 3
+    })
+
+    local cursor = ""
+    local validServerId = nil
+
+    for i = 1, 5 do
+        local serverUrl = string.format("https://games.roblox.com/v1/games/%d/servers/0?sortOrder=Asc&limit=100&cursor=%s", placeId, cursor)
+        local success, response = pcall(function() return game:HttpGet(serverUrl) end)
+
+        if success and response then
+            local decSuccess, data = pcall(function() return HttpService:JSONDecode(response) end)
+            if decSuccess and data and data.data then
+                for _, server in ipairs(data.data) do
+                    if server.playing and server.playing > 0 and server.playing < server.maxPlayers and server.id ~= game.JobId then
+                        validServerId = server.id
+                        break
+                    end
+                end
+                if validServerId then break end
+                cursor = data.nextPageCursor or ""
+                if cursor == "" or cursor == nil then break end
+            end
+        end
+    end
+
+    if validServerId then
+        OrionLib:MakeNotification({
+            Name = "VIP Server System",
+            Content = "Đã tìm thấy Server hợp lệ! Đang kết nối...",
+            Image = "rbxassetid://4483345998",
+            Time = 3
+        })
+        TeleportService:TeleportToPlaceInstance(placeId, validServerId, Players.LocalPlayer)
+    else
+        OrionLib:MakeNotification({
+            Name = "VIP Server System",
+            Content = "Hãy dán Link / Code VIP Server vào ô để chuyển vùng!",
+            Image = "rbxassetid://4483345998",
+            Time = 5
+        })
+    end
+end
+
+-- ==========================================
+-- 6. WORKSPACE FILE CONFIG SYSTEM
 -- ==========================================
 local CONFIG_FILE_PATH = "RuneHub_Config.json"
 
@@ -311,7 +395,7 @@ local function loadWorkspaceConfig()
 end
 
 -- ==========================================
--- 6. DỰNG GIAO DIỆN CÁC TAB
+-- 7. DỰNG GIAO DIỆN CÁC TAB
 -- ==========================================
 
 -- TAB 1: GÁN SKILL
@@ -368,7 +452,7 @@ for slot = 1, 4 do
 end
 
 -- TAB 3: AUTO UNDERGROUND VÀ QUẢN LÝ CONFIG
-Tab3_Settings:AddSection({ Name = "Auto Underground & Bệ Đứng Đi Theo" })
+Tab3_Settings:AddSection({ Name = "Auto Underground & Bệ ĐỨng Đi Theo" })
 
 Tab3_Settings:AddToggle({
     Name = "Bật Độn Thổ (Thủ Công)",
@@ -396,6 +480,24 @@ SliderElements["Offset"] = Tab3_Settings:AddSlider({
     end
 })
 
+Tab3_Settings:AddSection({ Name = "Quản Lý Server VIP" })
+
+Tab3_Settings:AddTextbox({
+    Name = "Nhập Link / Code VIP Server",
+    Default = "",
+    TextDisappear = false,
+    Callback = function(Value)
+        CustomVipCode = Value
+    end
+})
+
+Tab3_Settings:AddButton({
+    Name = "Vào VIP Server / Chuyển Server",
+    Callback = function()
+        findAndJoinMyServer()
+    end
+})
+
 Tab3_Settings:AddSection({ Name = "Quản Lý Cấu Hình (Workspace)" })
 
 Tab3_Settings:AddButton({
@@ -413,7 +515,7 @@ Tab3_Settings:AddButton({
 })
 
 -- ==========================================
--- 7. GIAO DIỆN NÚT MOBILE (1, 2, 3, 4)
+-- 8. GIAO DIỆN NÚT MOBILE (1, 2, 3, 4)
 -- ==========================================
 local function createMobileUI()
     local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
@@ -467,7 +569,6 @@ task.spawn(createMobileUI)
 
 OrionLib:Init()
 
--- TỰ ĐỘNG LOAD CONFIG TỪ WORKSPACE KHI VỪA MỞ SCRIPT
 task.spawn(function()
     task.wait(0.5)
     loadWorkspaceConfig()
