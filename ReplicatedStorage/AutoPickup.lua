@@ -17,9 +17,6 @@ return function(Window, Fluent)
             "Health", "Ring Water", "Armor Water", "Slash"
         }
 
-        local SelectedRarities = {}
-        local SelectedSkills = {}
-        local SelectedStats = {}
         local StatMinValues = {}
         local PickupRadius = 40
 
@@ -40,22 +37,19 @@ return function(Window, Fluent)
             Callback = function(Value) PickupRadius = Value end
         })
 
-        PickupTab:AddDropdown("SelectSkills", {
+        local SelectSkills = PickupTab:AddDropdown("SelectSkills", {
             Title = "Lọc Skill (Có Skill này = Nhặt Ngay)",
-            Values = SkillOptions, Multi = true, Default = {},
-            Callback = function(Value) SelectedSkills = Value end
+            Values = SkillOptions, Multi = true, Default = {}
         })
 
-        PickupTab:AddDropdown("SelectRarity", {
+        local SelectRarity = PickupTab:AddDropdown("SelectRarity", {
             Title = "Filter by Rarity",
-            Values = Rarities, Multi = true, Default = {},
-            Callback = function(Value) SelectedRarities = Value end
+            Values = Rarities, Multi = true, Default = {}
         })
 
-        PickupTab:AddDropdown("SelectStats", {
+        local SelectStats = PickupTab:AddDropdown("SelectStats", {
             Title = "Chọn Chỉ Số Cần Lọc",
-            Values = StatOptions, Multi = true, Default = {},
-            Callback = function(Value) SelectedStats = Value end
+            Values = StatOptions, Multi = true, Default = {}
         })
 
         PickupTab:AddSection("Cấu hình % Tối thiểu cho Chỉ Số")
@@ -71,11 +65,41 @@ return function(Window, Fluent)
             })
         end
 
-        local function passesFilter(model)
+        local function passesFilter(model, prompt)
             if not model then return false end
 
-            -- Quét toàn bộ Text của item
+            -- 1. Lấy dữ liệu chính xác từ UI Fluent
+            local rawSkills = SelectSkills.Value or {}
+            local rawRarities = SelectRarity.Value or {}
+            local rawStats = SelectStats.Value or {}
+
+            local activeSkills = {}
+            for name, enabled in pairs(rawSkills) do
+                if enabled == true then table.insert(activeSkills, string.lower(name)) end
+            end
+
+            local activeRarities = {}
+            for name, enabled in pairs(rawRarities) do
+                if enabled == true then table.insert(activeRarities, string.lower(name)) end
+            end
+
+            local activeStats = {}
+            for name, enabled in pairs(rawStats) do
+                if enabled == true then table.insert(activeStats, name) end
+            end
+
+            -- Nếu KHÔNG TÍCH LỌC NÀO -> Mới nhặt tất cả
+            if #activeSkills == 0 and #activeRarities == 0 and #activeStats == 0 then
+                return true
+            end
+
+            -- 2. Quét sạch toàn bộ Text từ Model, BillboardGui (Bảng tên đè trên đầu món đồ) & ProximityPrompt
             local textList = { model.Name }
+            if prompt then
+                table.insert(textList, prompt.ObjectText or "")
+                table.insert(textList, prompt.ActionText or "")
+            end
+
             for _, desc in pairs(model:GetDescendants()) do
                 if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and desc.Text and desc.Text ~= "" then
                     table.insert(textList, desc.Text)
@@ -88,28 +112,7 @@ return function(Window, Fluent)
             local rawText = table.concat(textList, " \n ")
             local lowerText = string.lower(rawText)
 
-            -- Xử lý lấy danh sách đang chọn từ Fluent UI (Dạng Key-Value)
-            local activeSkills = {}
-            for name, enabled in pairs(SelectedSkills) do
-                if enabled == true then table.insert(activeSkills, string.lower(name)) end
-            end
-
-            local activeRarities = {}
-            for name, enabled in pairs(SelectedRarities) do
-                if enabled == true then table.insert(activeRarities, string.lower(name)) end
-            end
-
-            local activeStats = {}
-            for name, enabled in pairs(SelectedStats) do
-                if enabled == true then table.insert(activeStats, name) end
-            end
-
-            -- Nếu không chọn bất kỳ cái nào -> Nhặt hết
-            if #activeSkills == 0 and #activeRarities == 0 and #activeStats == 0 then
-                return true
-            end
-
-            -- 1. ƯU TIÊN SKILL (Nếu dính skill là lượm liền)
+            -- 3. ĐIỀU KIỆN 1: ƯU TIÊN SKILL
             if #activeSkills > 0 then
                 for _, skillName in ipairs(activeSkills) do
                     if string.find(lowerText, skillName, 1, true) then
@@ -118,7 +121,7 @@ return function(Window, Fluent)
                 end
             end
 
-            -- 2. LỌC RARITY
+            -- 4. ĐIỀU KIỆN 2: LỌC RARITY
             local rarityPassed = true
             if #activeRarities > 0 then
                 rarityPassed = false
@@ -130,7 +133,7 @@ return function(Window, Fluent)
                 end
             end
 
-            -- 3. LỌC STATS & %
+            -- 5. ĐIỀU KIỆN 3: LỌC STATS & %
             local statPassed = true
             if #activeStats > 0 then
                 statPassed = false
@@ -142,7 +145,6 @@ return function(Window, Fluent)
                             statPassed = true
                             break
                         else
-                            -- Tìm số % ngay sau tên dòng chỉ số đó
                             for line in lowerText:gmatch("[^\r\n]+") do
                                 if string.find(line, cleanStat, 1, true) then
                                     local num = line:match("(%d+)%%") or line:match("(%d+)")
@@ -158,7 +160,7 @@ return function(Window, Fluent)
                 end
             end
 
-            -- Bắt buộc phải thỏa mãn CẢ HAI (Rarity AND Stat) nếu có tích chọn
+            -- Phải thỏa mãn CẢ HAI (Rarity VÀ Stat) nếu có chọn
             return rarityPassed and statPassed
         end
 
@@ -196,7 +198,7 @@ return function(Window, Fluent)
                                 local targetPart = (obj.Parent and obj.Parent:IsA("BasePart") and obj.Parent) or (itemModel and itemModel:FindFirstChildWhichIsA("BasePart", true))
 
                                 if targetPart and (targetPart.Position - hrp.Position).Magnitude <= PickupRadius then
-                                    if passesFilter(itemModel) then
+                                    if passesFilter(itemModel, obj) then
                                         triggerPrompt(obj)
                                     end
                                 end
