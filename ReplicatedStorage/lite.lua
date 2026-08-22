@@ -1,7 +1,8 @@
 -- ============================================================
--- RUNE HUB | ULTRA LITE (CHỈ CHỌN SKILL & BẤM NÚT XẢ SKILL)
+-- RUNE HUB | LITE VERSION (CAST SKILL ONLY - NO SPAM)
 -- ============================================================
 
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -10,14 +11,14 @@ local LocalPlayer = Players.LocalPlayer
 local Remote = ReplicatedStorage:WaitForChild("RuneWeaponSkillRemote", 10)
 
 -- ==========================================
--- 1. QUÉT DANH SÁCH SKILL TỪ GITHUB
+-- 1. QUÉT FOLDER SKILL TỪ GITHUB
 -- ==========================================
 local REPO_OWNER = "tinvn1"
 local REPO_NAME = "tin"
 local FOLDER_PATH = "ReplicatedStorage/SkillPatterns"
 local API_URL = string.format("https://api.github.com/repos/%s/%s/contents/%s", REPO_OWNER, REPO_NAME, FOLDER_PATH)
 
-local SkillList = {"None"}
+local SkillList = {}
 local SkillDownloadUrls = {}
 
 local function fetchSkillListFromGitHub()
@@ -37,11 +38,44 @@ local function fetchSkillListFromGitHub()
 end
 fetchSkillListFromGitHub()
 
+local SkillDropdownOptions = {"None"}
+for _, name in ipairs(SkillList) do table.insert(SkillDropdownOptions, name) end
+
 -- ==========================================
--- 2. LOGIC TẢI & TUNG SKILL
+-- 2. KHỞI TẠO UI FLUENT
 -- ==========================================
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+local Window = Fluent:CreateWindow({
+    Title = "Rune Hub | Lite Version",
+    SubTitle = "v1.0 Cast Skill Only",
+    TabWidth = 140,
+    Size = UDim2.fromOffset(520, 380),
+    Acrylic = false,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Slots    = Window:AddTab({ Title = "Skill Slots", Icon = "zap" }),
+    Keyboard = Window:AddTab({ Title = "Keybinds (PC)", Icon = "keyboard" })
+}
+
+-- ==========================================
+-- 3. LOGIC XỬ LÝ DÙNG SKILL
+-- ==========================================
+local MasterSkillEnabled = true
 local LoadedSkillPatterns = {}
-local SelectedSkills = { [1] = "None", [2] = "None", [3] = "None", [4] = "None" }
+
+local SlotConfig = {
+    [1] = { Skill = "None", Key = Enum.KeyCode.One },
+    [2] = { Skill = "None", Key = Enum.KeyCode.Two },
+    [3] = { Skill = "None", Key = Enum.KeyCode.Three },
+    [4] = { Skill = "None", Key = Enum.KeyCode.Four }
+}
+
+local MobileButtons = {}
+local MobileMasterBtn = nil
 
 local function getCharacterCFrame()
     if LocalPlayer and LocalPlayer.Character then
@@ -68,116 +102,154 @@ local function getOrFetchSkillPattern(skillName)
     return nil
 end
 
-local function castSkill(slotNum)
-    local skillName = SelectedSkills[slotNum]
-    if not skillName or skillName == "None" then return end
-    
-    local pattern = getOrFetchSkillPattern(skillName)
+local function castSkillBySlot(slotNum)
+    if not MasterSkillEnabled then return end
+    local cfg = SlotConfig[slotNum]
+    if not cfg or cfg.Skill == "None" then return end
+    local pattern = getOrFetchSkillPattern(cfg.Skill)
     if pattern and Remote then
         pcall(function()
-            Remote:InvokeServer("TryCast", skillName, pattern, getCharacterCFrame())
+            Remote:InvokeServer("TryCast", cfg.Skill, pattern, getCharacterCFrame())
         end)
     end
 end
 
--- ==========================================
--- 3. TẠO GIAO DIỆN NÚT BẤM & CHỌN SKILL
--- ==========================================
-local function buildSimpleUI()
-    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-    if playerGui:FindFirstChild("UltraLiteSkillGui") then
-        playerGui.UltraLiteSkillGui:Destroy()
+local function setMasterSkillState(state)
+    MasterSkillEnabled = state
+    if MobileMasterBtn then
+        MobileMasterBtn.Text = state and "SKILL: ON" or "SKILL: OFF"
+        MobileMasterBtn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 80) or Color3.fromRGB(180, 40, 40)
     end
+end
+
+-- LẮNG NGHE PHÍM TẮT PC (KÍCH HOẠT SKILL 1 LẦN)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or not MasterSkillEnabled then return end
+    for slotNum, cfg in pairs(SlotConfig) do
+        if input.KeyCode == cfg.Key then
+            castSkillBySlot(slotNum)
+        end
+    end
+end)
+
+-- ==========================================
+-- 4. DỰNG GIAO DIỆN (UI)
+-- ==========================================
+
+-- TAB 1: SKILL SLOTS
+Tabs.Slots:AddToggle("MasterSkillToggle", {
+    Title = "Bật / Tắt Hệ Thống Skill",
+    Default = true,
+    Callback = function(Value) setMasterSkillState(Value) end
+})
+
+Tabs.Slots:AddSection("Cài Đặt Slot (1 - 4)")
+for slot = 1, 4 do
+    Tabs.Slots:AddDropdown("SlotDropdown_" .. slot, {
+        Title = "Slot " .. slot .. " - Chọn Skill",
+        Values = SkillDropdownOptions,
+        Default = "None",
+        Callback = function(Value)
+            SlotConfig[slot].Skill = Value
+            if MobileButtons[slot] then
+                MobileButtons[slot].Visible = (Value ~= "None")
+                MobileButtons[slot].Text = string.format("[%d]\n%s", slot, Value)
+            end
+        end
+    })
+end
+
+-- TAB 2: KEYBOARD
+Tabs.Keyboard:AddSection("Phím Tắt Kích Hoạt (PC)")
+for slot = 1, 4 do
+    Tabs.Keyboard:AddKeybind("KeybindSlot_" .. slot, {
+        Title = "Kích Hoạt Slot " .. slot,
+        Mode = "Hold",
+        Default = SlotConfig[slot].Key.Name,
+        Callback = function(Value)
+            if typeof(Value) == "EnumItem" then
+                SlotConfig[slot].Key = Value
+            elseif type(Value) == "string" and Enum.KeyCode[Value] then
+                SlotConfig[slot].Key = Enum.KeyCode[Value]
+            end
+        end
+    })
+end
+
+-- ==========================================
+-- 5. GIAO DIỆN NÚT MOBILE
+-- ==========================================
+local function createMobileUI()
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    if playerGui:FindFirstChild("MobileSkillGuiLite") then playerGui.MobileSkillGuiLite:Destroy() end
 
     local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "UltraLiteSkillGui"
+    screenGui.Name = "MobileSkillGuiLite"
     screenGui.ResetOnSpawn = false
     screenGui.Parent = playerGui
 
-    -- Khung chứa chính
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 320, 0, 130)
-    mainFrame.Position = UDim2.new(0.5, -160, 0.75, 0)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    mainFrame.BackgroundTransparency = 0.2
-    mainFrame.Active = true
-    mainFrame.Draggable = true -- Cho phép kéo thả vị trí trên màn hình
-    mainFrame.Parent = screenGui
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(0, 280, 0, 110)
+    container.Position = UDim2.new(0.5, -140, 0.75, 0)
+    container.BackgroundTransparency = 1
+    container.Parent = screenGui
 
-    local mainCorner = Instance.new("UICorner")
-    mainCorner.CornerRadius = UDim.new(0, 10)
-    mainCorner.Parent = mainFrame
+    local masterBtn = Instance.new("TextButton")
+    masterBtn.Name = "MasterToggleBtn"
+    masterBtn.Size = UDim2.new(1, 0, 0, 30)
+    masterBtn.Position = UDim2.new(0, 0, 0, 0)
+    masterBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 80)
+    masterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    masterBtn.Text = "SKILL: ON"
+    masterBtn.Font = Enum.Font.SourceSansBold
+    masterBtn.TextSize = 14
+    masterBtn.Parent = container
 
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 20)
-    title.Position = UDim2.new(0, 0, 0, 5)
-    title.BackgroundTransparency = 1
-    title.Text = "RUNE HUB ULTRA LITE"
-    title.TextColor3 = Color3.fromRGB(0, 200, 255)
-    title.Font = Enum.Font.SourceSansBold
-    title.TextSize = 14
-    title.Parent = mainFrame
+    local masterCorner = Instance.new("UICorner")
+    masterCorner.CornerRadius = UDim.new(0, 6)
+    masterCorner.Parent = masterBtn
 
-    -- Tạo 4 Slot
+    MobileMasterBtn = masterBtn
+
+    masterBtn.MouseButton1Click:Connect(function()
+        local newState = not MasterSkillEnabled
+        if Fluent.Options.MasterSkillToggle then
+            Fluent.Options.MasterSkillToggle:SetValue(newState)
+        else
+            setMasterSkillState(newState)
+        end
+    end)
+
     for slot = 1, 4 do
-        local xOffset = (slot - 1) * 75 + 10
-
-        -- Nút bấm tung Skill (Phía dưới)
         local btn = Instance.new("TextButton")
-        btn.Name = "CastBtn_" .. slot
-        btn.Size = UDim2.new(0, 70, 0, 50)
-        btn.Position = UDim2.new(0, xOffset, 0, 65)
-        btn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+        btn.Name = "SkillBtn_" .. slot
+        btn.Size = UDim2.new(0, 60, 0, 60)
+        btn.Position = UDim2.new(0, (slot - 1) * 70, 0, 40)
+        btn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
         btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Text = "Slot " .. slot
+        btn.TextScaled = true
         btn.Font = Enum.Font.SourceSansBold
-        btn.TextSize = 13
-        btn.Parent = mainFrame
+        btn.Visible = false
+        btn.Parent = container
 
-        local btnCorner = Instance.new("UICorner")
-        btnCorner.CornerRadius = UDim.new(0, 8)
-        btnCorner.Parent = btn
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = btn
 
-        local btnStroke = Instance.new("UIStroke")
-        btnStroke.Color = Color3.fromRGB(0, 170, 255)
-        btnStroke.Thickness = 1.5
-        btnStroke.Parent = btn
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(0, 170, 255)
+        stroke.Thickness = 2
+        stroke.Parent = btn
 
-        -- Khi bấm nút -> Xả skill 1 lần
-        btn.MouseButton1Click:Connect(function()
-            castSkill(slot)
-        end)
-
-        -- Nút chuyển đổi Skill (Phía trên nút tung skill)
-        local selectBtn = Instance.new("TextButton")
-        selectBtn.Name = "SelectBtn_" .. slot
-        selectBtn.Size = UDim2.new(0, 70, 0, 25)
-        selectBtn.Position = UDim2.new(0, xOffset, 0, 32)
-        selectBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
-        selectBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-        selectBtn.Text = "Skill: None"
-        selectBtn.Font = Enum.Font.SourceSans
-        selectBtn.TextScaled = true
-        selectBtn.Parent = mainFrame
-
-        local selCorner = Instance.new("UICorner")
-        selCorner.CornerRadius = UDim.new(0, 6)
-        selCorner.Parent = selectBtn
-
-        -- Tự động đổi skill tiếp theo trong danh sách mỗi khi bấm vào nút "Skill: ..."
-        local currentIndex = 1
-        selectBtn.MouseButton1Click:Connect(function()
-            currentIndex = currentIndex + 1
-            if currentIndex > #SkillList then
-                currentIndex = 1
-            end
-            
-            local chosenSkill = SkillList[currentIndex]
-            SelectedSkills[slot] = chosenSkill
-            selectBtn.Text = chosenSkill
-            btn.Text = "S" .. slot .. ":\n" .. chosenSkill
-        end)
+        MobileButtons[slot] = btn
+        btn.MouseButton1Click:Connect(function() castSkillBySlot(slot) end)
     end
 end
 
-buildSimpleUI()
+task.spawn(createMobileUI)
+
+Fluent:Notify({
+    Title = "Rune Hub Lite",
+    Content = "Đã tải bản Lite (Cast Skill Single)!",
+    Duration = 4
+})
