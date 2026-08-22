@@ -1,15 +1,12 @@
 return function(Window, Fluent, sessionID)
     local PickupTab = Window:AddTab({ Title = "Auto Pickup", Icon = "shopping-bag" })
 
-    -- Danh sách Rarity & Stats
     local Rarities = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
     local StatOptions = { 
         "Crit Chance", "Crit Damage", "Damage", 
         "Mana Regen", "Gold Bonus", "Luck", 
         "Health", "ReflectDamage", "Slash" 
     }
-
-    -- Danh sách Chiêu thức (Skills) trích xuất từ Inventory
     local SkillOptions = {
         "Star Fire", "Whirl Pool", "Summon", "Meteo",
         "Prime Ice Sword", "Ice Sword", "Lighting Staff",
@@ -17,13 +14,11 @@ return function(Window, Fluent, sessionID)
         "Health", "Ring Water", "Armor Water", "Slash"
     }
 
-    -- State lưu cấu hình
     local SelectedRarities = {}
     local SelectedStats = {}
     local SelectedSkills = {}
     local PickupRadius = 40
 
-    -- UI Controls
     PickupTab:AddToggle("ToggleAutoPickup", {
         Title = "Enable Auto Pickup",
         Default = false,
@@ -73,11 +68,9 @@ return function(Window, Fluent, sessionID)
         end
     })
 
-    -- Logic kiểm tra bộ lọc
     local function passesFilter(itemModel)
         if not itemModel then return false end
 
-        -- Gom toàn bộ Text từ TextLabel, TextButton, Name và Attributes
         local textData = string.lower(itemModel.Name) .. " "
         
         for _, v in pairs(itemModel:GetDescendants()) do
@@ -90,7 +83,7 @@ return function(Window, Fluent, sessionID)
             textData = textData .. " " .. string.lower(tostring(attrName)) .. " " .. string.lower(tostring(attrVal))
         end
 
-        -- 1. Kiểm tra Lọc Rarity
+        -- 1. Lọc Rarity
         local reqRarities = {}
         for rName, enabled in pairs(SelectedRarities) do
             if enabled then table.insert(reqRarities, string.lower(rName)) end
@@ -104,21 +97,7 @@ return function(Window, Fluent, sessionID)
             if not matched then return false end
         end
 
-        -- 2. Kiểm tra Lọc Stats
-        local reqStats = {}
-        for sName, enabled in pairs(SelectedStats) do
-            if enabled then table.insert(reqStats, string.lower(sName)) end
-        end
-
-        if #reqStats > 0 then
-            local matched = false
-            for _, s in ipairs(reqStats) do
-                if string.find(textData, s) then matched = true break end
-            end
-            if not matched then return false end
-        end
-
-        -- 3. Kiểm tra Lọc Chiêu Thức (Skill)
+        -- 2. Lọc Skill Name
         local reqSkills = {}
         for skillName, enabled in pairs(SelectedSkills) do
             if enabled then table.insert(reqSkills, string.lower(skillName)) end
@@ -132,10 +111,35 @@ return function(Window, Fluent, sessionID)
             if not matched then return false end
         end
 
+        -- 3. Lọc Stats (Chỉ lọc nếu món đồ đó CÓ dòng Stats hiển thị)
+        local reqStats = {}
+        for sName, enabled in pairs(SelectedStats) do
+            if enabled then table.insert(reqStats, string.lower(sName)) end
+        end
+
+        if #reqStats > 0 then
+            -- Kiểm tra xem đồ này có chứa bất kỳ chữ chỉ số nào không
+            local hasAnyStatText = false
+            for _, stat in ipairs(StatOptions) do
+                if string.find(textData, string.lower(stat)) then
+                    hasAnyStatText = true
+                    break
+                end
+            end
+
+            -- Nếu đồ có dòng chỉ số thì mới tiến hành lọc theo danh sách chọn
+            if hasAnyStatText then
+                local matched = false
+                for _, s in ipairs(reqStats) do
+                    if string.find(textData, s) then matched = true break end
+                end
+                if not matched then return false end
+            end
+        end
+
         return true
     end
 
-    -- Hàm kích hoạt ProximityPrompt
     local function triggerPrompt(prompt)
         if not prompt or not prompt.Enabled then return end
         local origHold = prompt.HoldDuration
@@ -153,7 +157,6 @@ return function(Window, Fluent, sessionID)
         prompt.HoldDuration = origHold
     end
 
-    -- Vòng lặp tự động nhặt
     task.spawn(function()
         while task.wait(0.05) do
             if _G.DunkHubSession ~= sessionID then break end
