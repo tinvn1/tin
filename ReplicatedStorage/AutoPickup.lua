@@ -5,11 +5,20 @@ return function(Window, Fluent)
     local StatOptions = { 
         "Crit Chance", "Crit Damage", "Damage", 
         "Mana Regen", "Gold Bonus", "Luck", 
-        "Health", "ReflectDamage", "Slash" 
+        "Health", "ReflectDamage", "Slash", "Immunity"
+    }
+    local SkillOptions = {
+        "Star Fire", "Whirl Pool", "Summon", "Meteo",
+        "Prime Ice Sword", "Ice Sword", "Lighting Staff",
+        "Pistol", "Rock Dragon", "Immunity", "Fire Sword",
+        "Health", "Ring Water", "Armor Water", "Slash"
     }
 
     local SelectedRarities = {}
+    local SelectedSkills = {}
     local SelectedStats = {}
+    local StatMinValues = {}
+    local DynamicInputUI = {}
     local PickupRadius = 40
 
     PickupTab:AddToggle("ToggleAutoPickup", {
@@ -31,6 +40,16 @@ return function(Window, Fluent)
         end
     })
 
+    PickupTab:AddDropdown("SelectSkills", {
+        Title = "Lọc Skill (Thấy là nhặt luôn)",
+        Values = SkillOptions,
+        Multi = true,
+        Default = {},
+        Callback = function(Value)
+            SelectedSkills = Value
+        end
+    })
+
     PickupTab:AddDropdown("SelectRarity", {
         Title = "Filter by Rarity (Để trống = Nhặt tất cả)",
         Values = Rarities,
@@ -41,63 +60,110 @@ return function(Window, Fluent)
         end
     })
 
+    PickupTab:AddSection("Cấu hình Chỉ Số (%)")
+
     PickupTab:AddDropdown("SelectStats", {
-        Title = "Filter by Desired Stats (Để trống = Nhặt tất cả)",
+        Title = "Chọn Chỉ Số Cần Lọc",
         Values = StatOptions,
         Multi = true,
         Default = {},
         Callback = function(Value)
             SelectedStats = Value
+
+            for statName, isSelected in pairs(Value) do
+                if isSelected then
+                    if not DynamicInputUI[statName] then
+                        StatMinValues[statName] = 0
+                        DynamicInputUI[statName] = PickupTab:AddInput("Input_" .. statName, {
+                            Title = "Tối thiểu % cho " .. statName,
+                            Default = "0",
+                            Numeric = true,
+                            Finished = false,
+                            Callback = function(val)
+                                StatMinValues[statName] = tonumber(val) or 0
+                            end
+                        })
+                    end
+                else
+                    if DynamicInputUI[statName] then
+                        pcall(function() DynamicInputUI[statName]:Destroy() end)
+                        DynamicInputUI[statName] = nil
+                        StatMinValues[statName] = nil
+                    end
+                end
+            end
         end
     })
 
     local function passesFilter(model)
         if not model then return false end
-        local fullText = ""
         
+        local rawText = model.Name .. " "
         for _, desc in pairs(model:GetDescendants()) do
             if desc:IsA("TextLabel") or desc:IsA("TextButton") then
-                fullText = fullText .. " " .. string.lower(desc.Text)
+                rawText = rawText .. " " .. desc.Text
             end
         end
 
         for attrName, attrVal in pairs(model:GetAttributes()) do
-            fullText = fullText .. " " .. string.lower(tostring(attrName)) .. " " .. string.lower(tostring(attrVal))
+            rawText = rawText .. " " .. tostring(attrName) .. " " .. tostring(attrVal)
         end
 
-        local activeRarities = {}
-        for rarity, state in pairs(SelectedRarities) do
-            if state == true then table.insert(activeRarities, string.lower(rarity)) end
-        end
+        local lowerText = string.lower(rawText)
+        local cleanFullText = string.gsub(lowerText, "%s+", "")
 
-        if #activeRarities > 0 then
-            local matchRarity = false
-            for _, rName in ipairs(activeRarities) do
-                if string.find(fullText, rName) then matchRarity = true break end
+        -- 1. ƯU TIÊN LỌC SKILL (Thấy đúng tên Skill là cho qua luôn)
+        for skillName, enabled in pairs(SelectedSkills) do
+            if enabled then
+                local cleanSkill = string.lower(string.gsub(skillName, "%s+", ""))
+                if string.find(cleanFullText, cleanSkill, 1, true) then
+                    return true
+                end
             end
-            if not matchRarity then return false end
         end
 
-        local activeStats = {}
-        for stat, state in pairs(SelectedStats) do
-            if state == true then table.insert(activeStats, string.lower(stat)) end
-        end
+        -- 2. LỌC CÁC CHỈ SỐ (%)
+        for statName, enabled in pairs(SelectedStats) do
+            if enabled then
+                local cleanStatKey = string.lower(string.gsub(statName, "%s+", ""))
+                if string.find(cleanFullText, cleanStatKey, 1, true) then
+                    local minReq = StatMinValues[statName] or 0
+                    if minReq <= 0 then
+                        return true
+                    end
 
-        if #activeStats > 0 then
-            local matchStat = false
-            for _, sName in ipairs(activeStats) do
-                if string.find(fullText, sName) then matchStat = true break end
+                    for valStr in rawText:gmatch("(%d+)%%") do
+                        local numVal = tonumber(valStr)
+                        if numVal and numVal >= minReq then
+                            return true
+                        end
+                    end
+                end
             end
-            if not matchStat then return false end
         end
 
-        return true
+        -- 3. LỌC THEO RARITY
+        for rName, enabled in pairs(SelectedRarities) do
+            if enabled then
+                if string.find(lowerText, string.lower(rName), 1, true) then
+                    return true
+                end
+            end
+        end
+
+        -- Nếu không chọn bất kỳ bộ lọc nào -> Nhặt tất cả đồ
+        local hasAnyFilter = false
+        for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
+        for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
+        for _, v in pairs(SelectedRarities) do if v then hasAnyFilter = true break end end
+
+        return not hasAnyFilter
     end
 
     local function triggerPrompt(prompt)
         if not prompt then return end
         
-        -- Bypass các giới hạn của Game ép ProximityPrompt kích hoạt ngay lập tức
+        -- Bypass triệt để các rào cản của ProximityPrompt
         prompt.HoldDuration = 0
         prompt.RequiresLineOfSight = false
         prompt.MaxActivationDistance = math.huge
@@ -116,7 +182,7 @@ return function(Window, Fluent)
         end
     end
 
-    -- Vòng lặp tự động hủy nếu script bị load lại
+    -- Vòng lặp quét đồ
     task.spawn(function()
         while task.wait(0.05) do
             if not _G.DunkHubLoaded then break end
@@ -131,7 +197,7 @@ return function(Window, Fluent)
                         if obj:IsA("ProximityPrompt") then
                             local itemModel = obj:FindFirstAncestorOfClass("Model") or obj.Parent
                             
-                            -- Tìm vị trí Part thực tế của món đồ để đo khoảng cách
+                            -- Định vị Part thực tế của món đồ để tính khoảng cách
                             local targetPart = nil
                             if obj.Parent and obj.Parent:IsA("BasePart") then
                                 targetPart = obj.Parent
