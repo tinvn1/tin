@@ -18,7 +18,6 @@ return function(Window, Fluent)
     local SelectedSkills = {}
     local SelectedStats = {}
     local StatMinValues = {}
-    local DynamicInputUI = {}
     local PickupRadius = 40
 
     PickupTab:AddToggle("ToggleAutoPickup", {
@@ -60,8 +59,6 @@ return function(Window, Fluent)
         end
     })
 
-    PickupTab:AddSection("Cấu hình Chỉ Số (%)")
-
     PickupTab:AddDropdown("SelectStats", {
         Title = "Chọn Chỉ Số Cần Lọc",
         Values = StatOptions,
@@ -69,31 +66,24 @@ return function(Window, Fluent)
         Default = {},
         Callback = function(Value)
             SelectedStats = Value
-
-            for statName, isSelected in pairs(Value) do
-                if isSelected then
-                    if not DynamicInputUI[statName] then
-                        StatMinValues[statName] = 0
-                        DynamicInputUI[statName] = PickupTab:AddInput("Input_" .. statName, {
-                            Title = "Tối thiểu % cho " .. statName,
-                            Default = "0",
-                            Numeric = true,
-                            Finished = false,
-                            Callback = function(val)
-                                StatMinValues[statName] = tonumber(val) or 0
-                            end
-                        })
-                    end
-                else
-                    if DynamicInputUI[statName] then
-                        pcall(function() DynamicInputUI[statName]:Destroy() end)
-                        DynamicInputUI[statName] = nil
-                        StatMinValues[statName] = nil
-                    end
-                end
-            end
         end
     })
+
+    PickupTab:AddSection("Cấu hình % Tối thiểu cho Chỉ Số")
+
+    -- Tạo sẵn Input % cho từng Stat để tránh lỗi Dynamic UI của Fluent
+    for _, statName in ipairs(StatOptions) do
+        StatMinValues[statName] = 0
+        PickupTab:AddInput("Input_" .. statName, {
+            Title = "Tối thiểu % cho " .. statName,
+            Default = "0",
+            Numeric = true,
+            Finished = false,
+            Callback = function(val)
+                StatMinValues[statName] = tonumber(val) or 0
+            end
+        })
+    end
 
     local function passesFilter(model)
         if not model then return false end
@@ -112,7 +102,7 @@ return function(Window, Fluent)
         local lowerText = string.lower(rawText)
         local cleanFullText = string.gsub(lowerText, "%s+", "")
 
-        -- 1. ƯU TIÊN LỌC SKILL (Thấy đúng tên Skill là cho qua luôn)
+        -- 1. ƯU TIÊN LỌC SKILL
         for skillName, enabled in pairs(SelectedSkills) do
             if enabled then
                 local cleanSkill = string.lower(string.gsub(skillName, "%s+", ""))
@@ -122,7 +112,7 @@ return function(Window, Fluent)
             end
         end
 
-        -- 2. LỌC CÁC CHỈ SỐ (%)
+        -- 2. LỌC CHỈ SỐ (%)
         for statName, enabled in pairs(SelectedStats) do
             if enabled then
                 local cleanStatKey = string.lower(string.gsub(statName, "%s+", ""))
@@ -142,7 +132,7 @@ return function(Window, Fluent)
             end
         end
 
-        -- 3. LỌC THEO RARITY
+        -- 3. LỌC RARITY
         for rName, enabled in pairs(SelectedRarities) do
             if enabled then
                 if string.find(lowerText, string.lower(rName), 1, true) then
@@ -151,7 +141,7 @@ return function(Window, Fluent)
             end
         end
 
-        -- Nếu không chọn bất kỳ bộ lọc nào -> Nhặt tất cả đồ
+        -- Nếu không chọn bộ lọc nào -> Nhặt tất cả
         local hasAnyFilter = false
         for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
         for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
@@ -163,7 +153,6 @@ return function(Window, Fluent)
     local function triggerPrompt(prompt)
         if not prompt then return end
         
-        -- Bypass triệt để các rào cản của ProximityPrompt
         prompt.HoldDuration = 0
         prompt.RequiresLineOfSight = false
         prompt.MaxActivationDistance = math.huge
@@ -182,7 +171,7 @@ return function(Window, Fluent)
         end
     end
 
-    -- Vòng lặp quét đồ
+    -- Vòng lặp tự động nhặt đồ
     task.spawn(function()
         while task.wait(0.05) do
             if not _G.DunkHubLoaded then break end
@@ -197,7 +186,6 @@ return function(Window, Fluent)
                         if obj:IsA("ProximityPrompt") then
                             local itemModel = obj:FindFirstAncestorOfClass("Model") or obj.Parent
                             
-                            -- Định vị Part thực tế của món đồ để tính khoảng cách
                             local targetPart = nil
                             if obj.Parent and obj.Parent:IsA("BasePart") then
                                 targetPart = obj.Parent
