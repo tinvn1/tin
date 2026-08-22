@@ -70,7 +70,8 @@ return function(Window, Fluent)
 
     local function passesFilter(model)
         if not model then return false end
-        
+
+        -- Lấy tất cả Text từ món đồ
         local textList = { model.Name }
         for _, desc in pairs(model:GetDescendants()) do
             if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and desc.Text and desc.Text ~= "" then
@@ -81,64 +82,77 @@ return function(Window, Fluent)
             table.insert(textList, tostring(attrName) .. " " .. tostring(attrVal))
         end
 
-        local rawText = table.concat(textList, " ")
+        local rawText = table.concat(textList, " \n ")
         local lowerText = string.lower(rawText)
 
-        local hasSkill = false
-        for _, v in pairs(SelectedSkills) do if v == true then hasSkill = true break end end
+        -- Kiểm tra xem có option nào đang BẬT không
+        local activeSkills = {}
+        for k, v in pairs(SelectedSkills) do if v == true then table.insert(activeSkills, string.lower(k)) end end
 
-        local hasRarity = false
-        for _, v in pairs(SelectedRarities) do if v == true then hasRarity = true break end end
+        local activeRarities = {}
+        for k, v in pairs(SelectedRarities) do if v == true then table.insert(activeRarities, string.lower(k)) end end
 
-        local hasStat = false
-        for _, v in pairs(SelectedStats) do if v == true then hasStat = true break end end
+        local activeStats = {}
+        for k, v in pairs(SelectedStats) do if v == true then table.insert(activeStats, k) end end
 
-        -- Nếu không bật lọc nào -> Nhặt tất cả
-        if not hasSkill and not hasRarity and not hasStat then
+        -- Không chọn gì -> Nhặt tất cả
+        if #activeSkills == 0 and #activeRarities == 0 and #activeStats == 0 then
             return true
         end
 
-        -- 1. ƯU TIÊN SKILL: Có skill đã chọn là nhặt luôn
-        if hasSkill then
-            for skillName, enabled in pairs(SelectedSkills) do
-                if enabled == true and string.find(lowerText, string.lower(skillName), 1, true) then
+        -- 1. ƯU TIÊN SKILL (Có đúng skill là lượm ngay)
+        if #activeSkills > 0 then
+            for _, skillName in ipairs(activeSkills) do
+                if string.find(lowerText, skillName, 1, true) then
                     return true
                 end
             end
         end
 
-        -- 2. KẾT HỢP RARITY VÀ STATS (Phải thoả mãn CẢ HAI nếu cùng chọn)
-        local rarityMatched = not hasRarity
-        if hasRarity then
-            for rName, enabled in pairs(SelectedRarities) do
-                if enabled == true and string.find(lowerText, string.lower(rName), 1, true) then
-                    rarityMatched = true
+        -- 2. LỌC RARITY
+        local rarityPassed = true
+        if #activeRarities > 0 then
+            rarityPassed = false
+            for _, rName in ipairs(activeRarities) do
+                if string.find(lowerText, rName, 1, true) then
+                    rarityPassed = true
                     break
                 end
             end
         end
 
-        local statMatched = not hasStat
-        if hasStat then
-            for statName, enabled in pairs(SelectedStats) do
-                if enabled == true and string.find(lowerText, string.lower(statName), 1, true) then
+        -- 3. LỌC STATS & % TỐI THIỂU
+        local statPassed = true
+        if #activeStats > 0 then
+            statPassed = false
+            for _, statName in ipairs(activeStats) do
+                local cleanStat = string.lower(statName)
+                
+                -- Tìm dòng có chứa tên Stat
+                if string.find(lowerText, cleanStat, 1, true) then
                     local minReq = StatMinValues[statName] or 0
                     if minReq <= 0 then
-                        statMatched = true
+                        statPassed = true
                         break
                     else
-                        for valStr in rawText:gmatch("(%d+)%%") do
-                            if (tonumber(valStr) or 0) >= minReq then
-                                statMatched = true
-                                break
+                        -- Tìm số % nằm ở dòng chứa Stat đó
+                        for line in lowerText:gmatch("[^\r\n]+") do
+                            if string.find(line, cleanStat, 1, true) then
+                                local num = line:match("(%d+)%%") or line:match("(%d+)")
+                                if num and tonumber(num) >= minReq then
+                                    statPassed = true
+                                    break
+                                end
                             end
                         end
                     end
                 end
+                if statPassed then break end
             end
         end
 
-        return rarityMatched and statMatched
+        -- Bắt buộc đúng CẢ Rarity VÀ Stat nếu có chọn
+        return rarityPassed and statPassed
     end
 
     local function triggerPrompt(prompt)
