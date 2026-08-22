@@ -20,6 +20,10 @@ return function(Window, Fluent)
     local StatMinValues = {}
     local PickupRadius = 40
 
+    -- Tạo bảng DunkHubState nếu chưa có trong _G
+    if not _G.DunkHubState then _G.DunkHubState = {} end
+    _G.DunkHubState.AutoPickup = false
+
     PickupTab:AddToggle("ToggleAutoPickup", {
         Title = "Enable Auto Pickup",
         Default = false,
@@ -40,7 +44,7 @@ return function(Window, Fluent)
     })
 
     PickupTab:AddDropdown("SelectSkills", {
-        Title = "Lọc Skill (Thấy là nhặt luôn)",
+        Title = "Lọc Skill (Thấy đúng Skill là nhặt luôn)",
         Values = SkillOptions,
         Multi = true,
         Default = {},
@@ -71,7 +75,7 @@ return function(Window, Fluent)
 
     PickupTab:AddSection("Cấu hình % Tối thiểu cho Chỉ Số")
 
-    -- Tạo sẵn Input % cho từng Stat để tránh lỗi Dynamic UI của Fluent
+    -- Load cố định danh sách Input % cho từng Stat để UI luôn hiển thị 100%
     for _, statName in ipairs(StatOptions) do
         StatMinValues[statName] = 0
         PickupTab:AddInput("Input_" .. statName, {
@@ -141,7 +145,7 @@ return function(Window, Fluent)
             end
         end
 
-        -- Nếu không chọn bộ lọc nào -> Nhặt tất cả
+        -- Nếu không chọn bất kỳ bộ lọc nào -> Nhặt tất cả đồ
         local hasAnyFilter = false
         for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
         for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
@@ -171,11 +175,9 @@ return function(Window, Fluent)
         end
     end
 
-    -- Vòng lặp tự động nhặt đồ
+    -- Vòng lặp nhặt đồ liên tục
     task.spawn(function()
         while task.wait(0.05) do
-            if not _G.DunkHubLoaded then break end
-
             if _G.DunkHubState and _G.DunkHubState.AutoPickup then
                 local player = game.Players.LocalPlayer
                 local character = player and player.Character
