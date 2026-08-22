@@ -1,5 +1,5 @@
 -- ============================================================
--- RUNE HUB | LITE VERSION (CAST SKILL ONLY - NO SPAM)
+-- RUNE HUB | LITE VERSION (CAST SKILL ONLY + AUTO SAVE/LOAD)
 -- ============================================================
 
 local UserInputService = game:GetService("UserInputService")
@@ -9,6 +9,72 @@ local Players = game:GetService("Players")
 
 local LocalPlayer = Players.LocalPlayer
 local Remote = ReplicatedStorage:WaitForChild("RuneWeaponSkillRemote", 10)
+
+-- ==========================================
+-- 0. QUẢN LÝ AUTO SAVE / LOAD WORKSPACE
+-- ==========================================
+local FolderName = "RuneHub"
+local ConfigFile = string.format("%s/SkillConfig_%d.json", FolderName, game.PlaceId)
+
+if isfolder and not isfolder(FolderName) then
+    makefolder(FolderName)
+end
+
+local SlotConfig = {
+    [1] = { Skill = "None", Key = Enum.KeyCode.One },
+    [2] = { Skill = "None", Key = Enum.KeyCode.Two },
+    [3] = { Skill = "None", Key = Enum.KeyCode.Three },
+    [4] = { Skill = "None", Key = Enum.KeyCode.Four }
+}
+local MasterSkillEnabled = true
+
+local function SaveConfiguration()
+    if not writefile then return end
+    local saveData = {
+        MasterSkillEnabled = MasterSkillEnabled,
+        Slots = {}
+    }
+    for slot = 1, 4 do
+        saveData.Slots[tostring(slot)] = {
+            Skill = SlotConfig[slot].Skill,
+            Key = SlotConfig[slot].Key.Name
+        }
+    end
+    pcall(function()
+        writefile(ConfigFile, HttpService:JSONEncode(saveData))
+    end)
+end
+
+local function LoadConfiguration()
+    if not isfile or not readfile or not isfile(ConfigFile) then return nil end
+    local success, result = pcall(function()
+        return HttpService:JSONDecode(readfile(ConfigFile))
+    end)
+    if success and type(result) == "table" then
+        return result
+    end
+    return nil
+end
+
+local SavedData = LoadConfiguration()
+if SavedData then
+    if SavedData.MasterSkillEnabled ~= nil then
+        MasterSkillEnabled = SavedData.MasterSkillEnabled
+    end
+    if SavedData.Slots then
+        for slot = 1, 4 do
+            local slotStr = tostring(slot)
+            if SavedData.Slots[slotStr] then
+                if SavedData.Slots[slotStr].Skill then
+                    SlotConfig[slot].Skill = SavedData.Slots[slotStr].Skill
+                end
+                if SavedData.Slots[slotStr].Key and Enum.KeyCode[SavedData.Slots[slotStr].Key] then
+                    SlotConfig[slot].Key = Enum.KeyCode[SavedData.Slots[slotStr].Key]
+                end
+            end
+        end
+    end
+end
 
 -- ==========================================
 -- 1. QUÉT FOLDER SKILL TỪ GITHUB
@@ -48,7 +114,7 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 
 local Window = Fluent:CreateWindow({
     Title = "Rune Hub | Lite Version",
-    SubTitle = "v1.0 Cast Skill Only",
+    SubTitle = "v1.1 Cast Skill & Auto Save",
     TabWidth = 140,
     Size = UDim2.fromOffset(520, 380),
     Acrylic = false,
@@ -64,16 +130,7 @@ local Tabs = {
 -- ==========================================
 -- 3. LOGIC XỬ LÝ DÙNG SKILL
 -- ==========================================
-local MasterSkillEnabled = true
 local LoadedSkillPatterns = {}
-
-local SlotConfig = {
-    [1] = { Skill = "None", Key = Enum.KeyCode.One },
-    [2] = { Skill = "None", Key = Enum.KeyCode.Two },
-    [3] = { Skill = "None", Key = Enum.KeyCode.Three },
-    [4] = { Skill = "None", Key = Enum.KeyCode.Four }
-}
-
 local MobileButtons = {}
 local MobileMasterBtn = nil
 
@@ -120,9 +177,10 @@ local function setMasterSkillState(state)
         MobileMasterBtn.Text = state and "SKILL: ON" or "SKILL: OFF"
         MobileMasterBtn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 80) or Color3.fromRGB(180, 40, 40)
     end
+    SaveConfiguration()
 end
 
--- LẮNG NGHE PHÍM TẮT PC (KÍCH HOẠT SKILL 1 LẦN)
+-- LẮNG NGHE PHÍM TẮT PC
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not MasterSkillEnabled then return end
     for slotNum, cfg in pairs(SlotConfig) do
@@ -137,24 +195,27 @@ end)
 -- ==========================================
 
 -- TAB 1: SKILL SLOTS
-Tabs.Slots:AddToggle("MasterSkillToggle", {
+local masterToggle = Tabs.Slots:AddToggle("MasterSkillToggle", {
     Title = "Bật / Tắt Hệ Thống Skill",
-    Default = true,
+    Default = MasterSkillEnabled,
     Callback = function(Value) setMasterSkillState(Value) end
 })
 
 Tabs.Slots:AddSection("Cài Đặt Slot (1 - 4)")
+local DropdownElements = {}
+
 for slot = 1, 4 do
-    Tabs.Slots:AddDropdown("SlotDropdown_" .. slot, {
+    DropdownElements[slot] = Tabs.Slots:AddDropdown("SlotDropdown_" .. slot, {
         Title = "Slot " .. slot .. " - Chọn Skill",
         Values = SkillDropdownOptions,
-        Default = "None",
+        Default = SlotConfig[slot].Skill,
         Callback = function(Value)
             SlotConfig[slot].Skill = Value
             if MobileButtons[slot] then
                 MobileButtons[slot].Visible = (Value ~= "None")
                 MobileButtons[slot].Text = string.format("[%d]\n%s", slot, Value)
             end
+            SaveConfiguration()
         end
     })
 end
@@ -172,6 +233,7 @@ for slot = 1, 4 do
             elseif type(Value) == "string" and Enum.KeyCode[Value] then
                 SlotConfig[slot].Key = Enum.KeyCode[Value]
             end
+            SaveConfiguration()
         end
     })
 end
@@ -198,9 +260,9 @@ local function createMobileUI()
     masterBtn.Name = "MasterToggleBtn"
     masterBtn.Size = UDim2.new(1, 0, 0, 30)
     masterBtn.Position = UDim2.new(0, 0, 0, 0)
-    masterBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 80)
+    masterBtn.BackgroundColor3 = MasterSkillEnabled and Color3.fromRGB(0, 170, 80) or Color3.fromRGB(180, 40, 40)
     masterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    masterBtn.Text = "SKILL: ON"
+    masterBtn.Text = MasterSkillEnabled and "SKILL: ON" or "SKILL: OFF"
     masterBtn.Font = Enum.Font.SourceSansBold
     masterBtn.TextSize = 14
     masterBtn.Parent = container
@@ -221,6 +283,7 @@ local function createMobileUI()
     end)
 
     for slot = 1, 4 do
+        local currentSkill = SlotConfig[slot].Skill
         local btn = Instance.new("TextButton")
         btn.Name = "SkillBtn_" .. slot
         btn.Size = UDim2.new(0, 60, 0, 60)
@@ -228,8 +291,9 @@ local function createMobileUI()
         btn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
         btn.TextColor3 = Color3.fromRGB(255, 255, 255)
         btn.TextScaled = true
+        btn.Text = string.format("[%d]\n%s", slot, currentSkill)
         btn.Font = Enum.Font.SourceSansBold
-        btn.Visible = false
+        btn.Visible = (currentSkill ~= "None")
         btn.Parent = container
 
         local corner = Instance.new("UICorner")
@@ -250,6 +314,6 @@ task.spawn(createMobileUI)
 
 Fluent:Notify({
     Title = "Rune Hub Lite",
-    Content = "Đã tải bản Lite (Cast Skill Single)!",
+    Content = "Đã tải cấu hình Auto Save / Load thành công!",
     Duration = 4
 })
