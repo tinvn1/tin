@@ -1,6 +1,7 @@
-return function(Window, Fluent)
+return function(Window, Fluent, sessionID)
     local PickupTab = Window:AddTab({ Title = "Auto Pickup", Icon = "shopping-bag" })
 
+    -- Danh sách Rarity & Stats
     local Rarities = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
     local StatOptions = { 
         "Crit Chance", "Crit Damage", "Damage", 
@@ -8,10 +9,21 @@ return function(Window, Fluent)
         "Health", "ReflectDamage", "Slash" 
     }
 
+    -- Danh sách Chiêu thức (Skills) trích xuất từ Inventory
+    local SkillOptions = {
+        "Star Fire", "Whirl Pool", "Summon", "Meteo",
+        "Prime Ice Sword", "Ice Sword", "Lighting Staff",
+        "Pistol", "Rock Dragon", "Immunity", "Fire Sword",
+        "Health", "Ring Water", "Armor Water", "Slash"
+    }
+
+    -- State lưu cấu hình
     local SelectedRarities = {}
     local SelectedStats = {}
+    local SelectedSkills = {}
     local PickupRadius = 40
 
+    -- UI Controls
     PickupTab:AddToggle("ToggleAutoPickup", {
         Title = "Enable Auto Pickup",
         Default = false,
@@ -32,7 +44,7 @@ return function(Window, Fluent)
     })
 
     PickupTab:AddDropdown("SelectRarity", {
-        Title = "Filter by Rarity (Để trống = Nhặt tất cả)",
+        Title = "Filter by Rarity (Trống = Bỏ qua)",
         Values = Rarities,
         Multi = true,
         Default = {},
@@ -42,7 +54,7 @@ return function(Window, Fluent)
     })
 
     PickupTab:AddDropdown("SelectStats", {
-        Title = "Filter by Desired Stats (Để trống = Nhặt tất cả)",
+        Title = "Filter by Stats (Trống = Bỏ qua)",
         Values = StatOptions,
         Multi = true,
         Default = {},
@@ -51,49 +63,79 @@ return function(Window, Fluent)
         end
     })
 
-    local function passesFilter(model)
-        if not model then return false end
-        local fullText = ""
+    PickupTab:AddDropdown("SelectSkills", {
+        Title = "Filter by Skill Name (Trống = Bỏ qua)",
+        Values = SkillOptions,
+        Multi = true,
+        Default = {},
+        Callback = function(Value)
+            SelectedSkills = Value
+        end
+    })
+
+    -- Logic kiểm tra bộ lọc
+    local function passesFilter(itemModel)
+        if not itemModel then return false end
+
+        -- Gom toàn bộ Text từ TextLabel, TextButton, Name và Attributes
+        local textData = string.lower(itemModel.Name) .. " "
         
-        for _, desc in pairs(model:GetDescendants()) do
-            if desc:IsA("TextLabel") or desc:IsA("TextButton") then
-                fullText = fullText .. " " .. string.lower(desc.Text)
+        for _, v in pairs(itemModel:GetDescendants()) do
+            if v:IsA("TextLabel") or v:IsA("TextButton") then
+                textData = textData .. " " .. string.lower(v.Text)
             end
         end
 
-        for attrName, attrVal in pairs(model:GetAttributes()) do
-            fullText = fullText .. " " .. string.lower(tostring(attrName)) .. " " .. string.lower(tostring(attrVal))
+        for attrName, attrVal in pairs(itemModel:GetAttributes()) do
+            textData = textData .. " " .. string.lower(tostring(attrName)) .. " " .. string.lower(tostring(attrVal))
         end
 
-        local activeRarities = {}
-        for rarity, state in pairs(SelectedRarities) do
-            if state == true then table.insert(activeRarities, string.lower(rarity)) end
+        -- 1. Kiểm tra Lọc Rarity
+        local reqRarities = {}
+        for rName, enabled in pairs(SelectedRarities) do
+            if enabled then table.insert(reqRarities, string.lower(rName)) end
         end
 
-        if #activeRarities > 0 then
-            local matchRarity = false
-            for _, rName in ipairs(activeRarities) do
-                if string.find(fullText, rName) then matchRarity = true break end
+        if #reqRarities > 0 then
+            local matched = false
+            for _, r in ipairs(reqRarities) do
+                if string.find(textData, r) then matched = true break end
             end
-            if not matchRarity then return false end
+            if not matched then return false end
         end
 
-        local activeStats = {}
-        for stat, state in pairs(SelectedStats) do
-            if state == true then table.insert(activeStats, string.lower(stat)) end
+        -- 2. Kiểm tra Lọc Stats
+        local reqStats = {}
+        for sName, enabled in pairs(SelectedStats) do
+            if enabled then table.insert(reqStats, string.lower(sName)) end
         end
 
-        if #activeStats > 0 then
-            local matchStat = false
-            for _, sName in ipairs(activeStats) do
-                if string.find(fullText, sName) then matchStat = true break end
+        if #reqStats > 0 then
+            local matched = false
+            for _, s in ipairs(reqStats) do
+                if string.find(textData, s) then matched = true break end
             end
-            if not matchStat then return false end
+            if not matched then return false end
+        end
+
+        -- 3. Kiểm tra Lọc Chiêu Thức (Skill)
+        local reqSkills = {}
+        for skillName, enabled in pairs(SelectedSkills) do
+            if enabled then table.insert(reqSkills, string.lower(skillName)) end
+        end
+
+        if #reqSkills > 0 then
+            local matched = false
+            for _, sk in ipairs(reqSkills) do
+                if string.find(textData, sk) then matched = true break end
+            end
+            if not matched then return false end
         end
 
         return true
     end
 
+    -- Hàm kích hoạt ProximityPrompt
     local function triggerPrompt(prompt)
         if not prompt or not prompt.Enabled then return end
         local origHold = prompt.HoldDuration
@@ -111,11 +153,10 @@ return function(Window, Fluent)
         prompt.HoldDuration = origHold
     end
 
-    -- Vòng lặp tự động hủy nếu script bị load lại
+    -- Vòng lặp tự động nhặt
     task.spawn(function()
         while task.wait(0.05) do
-            -- Nếu DunkHub bị load lại (State bị reset) thì thoát vòng lặp cũ ngay lập tức
-            if not _G.DunkHubLoaded then break end
+            if _G.DunkHubSession ~= sessionID then break end
 
             if _G.DunkHubState.AutoPickup then
                 local player = game.Players.LocalPlayer
