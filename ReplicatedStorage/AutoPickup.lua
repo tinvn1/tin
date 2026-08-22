@@ -1,5 +1,6 @@
 return function(Window, Fluent, sessionID)
     local PickupTab = Window:AddTab({ Title = "Auto Pickup", Icon = "shopping-bag" })
+    local Vim = game:GetService("VirtualInputManager")
 
     local Rarities = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
     local StatOptions = { 
@@ -20,11 +21,17 @@ return function(Window, Fluent, sessionID)
     local DynamicInputUI = {}
     local PickupRadius = 50
 
+    -- BIẾN TRẠNG THÁI ĐỘC LẬP ĐẢM BẢO TOGGLE HOẠT ĐỘNG
+    _G.AutoPickupEnabled = false
+
     PickupTab:AddToggle("ToggleAutoPickup", {
         Title = "Enable Auto Pickup",
         Default = false,
         Callback = function(Value)
-            _G.DunkHubState.AutoPickup = Value
+            _G.AutoPickupEnabled = Value
+            if _G.DunkHubState then
+                _G.DunkHubState.AutoPickup = Value
+            end
         end
     })
 
@@ -50,7 +57,7 @@ return function(Window, Fluent, sessionID)
     })
 
     PickupTab:AddDropdown("SelectRarity", {
-        Title = "Lọc Rarity (Nhặt mọi đồ phẩm chất này)",
+        Title = "Lọc Rarity (Bỏ chọn nếu muốn nhặt mọi phẩm chất)",
         Values = Rarities,
         Multi = true,
         Default = {},
@@ -94,7 +101,7 @@ return function(Window, Fluent, sessionID)
         end
     })
 
-    -- LỌC VĂN BẢN ĐỒ
+    -- HÀM KIỂM TRA ĐIỀU KIỆN ĐỒ DROP (HOẠT ĐỘNG ĐỘC LẬP)
     local function passesFilter(item)
         if not item then return false end
 
@@ -108,7 +115,7 @@ return function(Window, Fluent, sessionID)
         local lowerText = string.lower(rawText)
         local cleanFullText = string.gsub(lowerText, "%s+", "")
 
-        -- 1. SKILL
+        -- 1. KIỂM TRA LỌC SKILL
         for skillName, enabled in pairs(SelectedSkills) do
             if enabled then
                 local cleanSkill = string.lower(string.gsub(skillName, "%s+", ""))
@@ -118,7 +125,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- 2. STATS & %
+        -- 2. KIỂM TRA LỌC STATS %
         for statName, enabled in pairs(SelectedStats) do
             if enabled then
                 local cleanStatKey = string.lower(string.gsub(statName, "%s+", ""))
@@ -138,7 +145,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- 3. RARITY
+        -- 3. KIỂM TRA LỌC RARITY
         for rName, enabled in pairs(SelectedRarities) do
             if enabled then
                 if string.find(lowerText, string.lower(rName), 1, true) then
@@ -147,7 +154,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- Nếu không chọn filter nào -> Nhặt hết
+        -- NẾU KHÔNG CHỌN BẤT KỲ FILTER NÀO -> MẶC ĐỊNH NHẶT TẤT CẢ
         local hasAnyFilter = false
         for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
         for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
@@ -156,63 +163,53 @@ return function(Window, Fluent, sessionID)
         return not hasAnyFilter
     end
 
-    -- THỰC THI NHẶT ĐỒ (KẾT HỢP DÒ CẢ REMOTE VÀ PROXIMITY)
-    local function triggerPickup(item)
-        if not item then return end
+    -- HÀM ÉP KÍCH HOẠT PROXIMITY PROMPT
+    local function doPickup(prompt)
+        if not prompt then return end
+        
+        prompt.HoldDuration = 0
+        prompt.RequiresLineOfSight = false
 
-        -- Cách 1: Thử kích hoạt ProximityPrompt chuẩn
-        local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt and prompt.Enabled then
-            if fireproximityprompt then
-                pcall(function() fireproximityprompt(prompt) end)
-            end
-            pcall(function()
-                if prompt.InputHoldBegin then
-                    prompt:InputHoldBegin()
-                    prompt:InputHoldEnd()
-                end
-            end)
+        if fireproximityprompt then
+            pcall(function() fireproximityprompt(prompt) end)
         end
 
-        -- Cách 2: Gọi RemoteEvent / RemoteFunction nhặt đồ bên trong Item
-        for _, obj in pairs(item:GetDescendants()) do
-            if obj:IsA("RemoteEvent") then
-                pcall(function() obj:FireServer() end)
-                pcall(function() obj:FireServer(item) end)
-            elseif obj:IsA("RemoteFunction") then
-                pcall(function() obj:InvokeServer() end)
-                pcall(function() obj:InvokeServer(item) end)
+        pcall(function()
+            if prompt.InputHoldBegin then
+                prompt:InputHoldBegin()
+                prompt:InputHoldEnd()
             end
-        end
+        end)
 
-        -- Cách 3: Tìm RemoteEvent chung trong ReplicatedStorage nếu có
-        local repStorage = game:GetService("ReplicatedStorage")
-        for _, name in pairs({"Pickup", "PickUp", "CollectItem", "PickupItem", "ItemPickup"}) do
-            local remote = repStorage:FindFirstChild(name, true)
-            if remote and remote:IsA("RemoteEvent") then
-                pcall(function() remote:FireServer(item) end)
-            end
-        end
+        pcall(function()
+            Vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.01)
+            Vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end)
     end
 
-    -- VÒNG LẶP DÒ QUÉT ITEMDROP
+    -- VÒNG LẶP DÒ QUÉT TẤT CẢ PROXIMITYPROMPT TRONG NHAU
     task.spawn(function()
         while task.wait(0.05) do
             if _G.DunkHubSession ~= sessionID then break end
 
-            if _G.DunkHubState.AutoPickup then
+            if _G.AutoPickupEnabled then
                 local player = game.Players.LocalPlayer
                 local character = player and player.Character
                 local hrp = character and character:FindFirstChild("HumanoidRootPart")
-                local itemDropFolder = workspace:FindFirstChild("itemdrop")
 
-                if hrp and itemDropFolder then
-                    for _, item in pairs(itemDropFolder:GetChildren()) do
-                        local part = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart") or item:FindFirstChild("PrimaryPart")
+                if hrp then
+                    -- Quét trực tiếp toàn bộ ProximityPrompt có trong workspace
+                    for _, prompt in pairs(workspace:GetDescendants()) do
+                        if prompt:IsA("ProximityPrompt") then
+                            local parentObj = prompt.Parent
+                            local itemModel = prompt:FindFirstAncestorOfClass("Model") or parentObj
+                            local targetPart = parentObj:IsA("BasePart") and parentObj or itemModel:FindFirstChildWhichIsA("BasePart") or hrp
 
-                        if part and (part.Position - hrp.Position).Magnitude <= PickupRadius then
-                            if passesFilter(item) then
-                                triggerPickup(item)
+                            if targetPart and (targetPart.Position - hrp.Position).Magnitude <= PickupRadius then
+                                if passesFilter(itemModel) then
+                                    doPickup(prompt)
+                                end
                             end
                         end
                     end
