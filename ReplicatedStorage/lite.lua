@@ -1,5 +1,5 @@
 -- ============================================================
--- RUNE HUB | LITE VERSION (SKILL SPAM ONLY)
+-- RUNE HUB | LITE VERSION (CAST SKILL ONLY - NO SPAM)
 -- ============================================================
 
 local UserInputService = game:GetService("UserInputService")
@@ -48,9 +48,9 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 
 local Window = Fluent:CreateWindow({
     Title = "Rune Hub | Lite Version",
-    SubTitle = "v1.0 Skill Spam Only",
+    SubTitle = "v1.0 Cast Skill Only",
     TabWidth = 140,
-    Size = UDim2.fromOffset(520, 420),
+    Size = UDim2.fromOffset(520, 380),
     Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.LeftControl
@@ -62,17 +62,16 @@ local Tabs = {
 }
 
 -- ==========================================
--- 3. LOGIC XỬ LÝ SKILL
+-- 3. LOGIC XỬ LÝ DÙNG SKILL
 -- ==========================================
 local MasterSkillEnabled = true
 local LoadedSkillPatterns = {}
-local slotThreads = {}
 
 local SlotConfig = {
-    [1] = { Skill = "None", AllowSpam = false, Delay = 0.5, Key = Enum.KeyCode.One, IsSpamming = false },
-    [2] = { Skill = "None", AllowSpam = false, Delay = 0.5, Key = Enum.KeyCode.Two, IsSpamming = false },
-    [3] = { Skill = "None", AllowSpam = false, Delay = 0.5, Key = Enum.KeyCode.Three, IsSpamming = false },
-    [4] = { Skill = "None", AllowSpam = false, Delay = 0.5, Key = Enum.KeyCode.Four, IsSpamming = false }
+    [1] = { Skill = "None", Key = Enum.KeyCode.One },
+    [2] = { Skill = "None", Key = Enum.KeyCode.Two },
+    [3] = { Skill = "None", Key = Enum.KeyCode.Three },
+    [4] = { Skill = "None", Key = Enum.KeyCode.Four }
 }
 
 local MobileButtons = {}
@@ -115,59 +114,20 @@ local function castSkillBySlot(slotNum)
     end
 end
 
-local function toggleSpamSlot(slotNum, state)
-    local cfg = SlotConfig[slotNum]
-    if not cfg or cfg.Skill == "None" then return end
-
-    if state == nil then cfg.IsSpamming = not cfg.IsSpamming else cfg.IsSpamming = state end
-
-    if cfg.IsSpamming and MasterSkillEnabled then
-        if not slotThreads[slotNum] then
-            slotThreads[slotNum] = task.spawn(function()
-                while cfg.IsSpamming and MasterSkillEnabled and cfg.Skill ~= "None" do
-                    castSkillBySlot(slotNum)
-                    task.wait(cfg.Delay)
-                end
-                slotThreads[slotNum] = nil
-            end)
-        end
-    end
-
-    if MobileButtons[slotNum] then
-        MobileButtons[slotNum].BackgroundColor3 = (cfg.IsSpamming and MasterSkillEnabled) and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(25, 25, 35)
-    end
-end
-
-local function handleSkillTrigger(slotNum)
-    if not MasterSkillEnabled then return end
-    local cfg = SlotConfig[slotNum]
-    if not cfg or cfg.Skill == "None" then return end
-    if cfg.AllowSpam then toggleSpamSlot(slotNum) else castSkillBySlot(slotNum) end
-end
-
 local function setMasterSkillState(state)
     MasterSkillEnabled = state
-    if not state then
-        for slotNum = 1, 4 do
-            SlotConfig[slotNum].IsSpamming = false
-            if MobileButtons[slotNum] then
-                MobileButtons[slotNum].BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-            end
-        end
-    end
-    
     if MobileMasterBtn then
         MobileMasterBtn.Text = state and "SKILL: ON" or "SKILL: OFF"
         MobileMasterBtn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 80) or Color3.fromRGB(180, 40, 40)
     end
 end
 
--- LẮNG NGHE PHÍM TẮT PC
+-- LẮNG NGHE PHÍM TẮT PC (KÍCH HOẠT SKILL 1 LẦN)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not MasterSkillEnabled then return end
     for slotNum, cfg in pairs(SlotConfig) do
         if input.KeyCode == cfg.Key then
-            handleSkillTrigger(slotNum)
+            castSkillBySlot(slotNum)
         end
     end
 end)
@@ -191,27 +151,11 @@ for slot = 1, 4 do
         Default = "None",
         Callback = function(Value)
             SlotConfig[slot].Skill = Value
-            if Value == "None" then toggleSpamSlot(slot, false) end
             if MobileButtons[slot] then
                 MobileButtons[slot].Visible = (Value ~= "None")
                 MobileButtons[slot].Text = string.format("[%d]\n%s", slot, Value)
             end
         end
-    })
-
-    Tabs.Slots:AddToggle("SlotSpam_" .. slot, {
-        Title = "Bật Auto Spam - Slot " .. slot,
-        Default = false,
-        Callback = function(Value)
-            SlotConfig[slot].AllowSpam = Value
-            if not Value then toggleSpamSlot(slot, false) end
-        end
-    })
-
-    Tabs.Slots:AddSlider("SlotDelay_" .. slot, {
-        Title = "Delay Slot " .. slot .. " (Giây)",
-        Min = 0.1, Max = 3.0, Default = 0.5, Rounding = 1,
-        Callback = function(Value) SlotConfig[slot].Delay = Value end
     })
 end
 
@@ -233,7 +177,7 @@ for slot = 1, 4 do
 end
 
 -- ==========================================
--- 5. GIAO DIỆN NÚT MOBILE LITE
+-- 5. GIAO DIỆN NÚT MOBILE
 -- ==========================================
 local function createMobileUI()
     local playerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -298,7 +242,7 @@ local function createMobileUI()
         stroke.Parent = btn
 
         MobileButtons[slot] = btn
-        btn.MouseButton1Click:Connect(function() handleSkillTrigger(slot) end)
+        btn.MouseButton1Click:Connect(function() castSkillBySlot(slot) end)
     end
 end
 
@@ -306,6 +250,6 @@ task.spawn(createMobileUI)
 
 Fluent:Notify({
     Title = "Rune Hub Lite",
-    Content = "Đã tải thành công bản Lite chuyên Spam Skill!",
+    Content = "Đã tải bản Lite (Cast Skill Single)!",
     Duration = 4
 })
