@@ -74,6 +74,7 @@ return function(Window, Fluent)
         local function passesFilter(model)
             if not model then return false end
 
+            -- Quét toàn bộ Text của item
             local textList = { model.Name }
             for _, desc in pairs(model:GetDescendants()) do
                 if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and desc.Text and desc.Text ~= "" then
@@ -87,20 +88,28 @@ return function(Window, Fluent)
             local rawText = table.concat(textList, " \n ")
             local lowerText = string.lower(rawText)
 
+            -- Xử lý lấy danh sách đang chọn từ Fluent UI (Dạng Key-Value)
             local activeSkills = {}
-            for k, v in pairs(SelectedSkills) do if v == true then table.insert(activeSkills, string.lower(k)) end end
+            for name, enabled in pairs(SelectedSkills) do
+                if enabled == true then table.insert(activeSkills, string.lower(name)) end
+            end
 
             local activeRarities = {}
-            for k, v in pairs(SelectedRarities) do if v == true then table.insert(activeRarities, string.lower(k)) end end
+            for name, enabled in pairs(SelectedRarities) do
+                if enabled == true then table.insert(activeRarities, string.lower(name)) end
+            end
 
             local activeStats = {}
-            for k, v in pairs(SelectedStats) do if v == true then table.insert(activeStats, k) end end
+            for name, enabled in pairs(SelectedStats) do
+                if enabled == true then table.insert(activeStats, name) end
+            end
 
+            -- Nếu không chọn bất kỳ cái nào -> Nhặt hết
             if #activeSkills == 0 and #activeRarities == 0 and #activeStats == 0 then
                 return true
             end
 
-            -- 1. Ưu tiên Skill
+            -- 1. ƯU TIÊN SKILL (Nếu dính skill là lượm liền)
             if #activeSkills > 0 then
                 for _, skillName in ipairs(activeSkills) do
                     if string.find(lowerText, skillName, 1, true) then
@@ -109,7 +118,7 @@ return function(Window, Fluent)
                 end
             end
 
-            -- 2. Lọc Rarity
+            -- 2. LỌC RARITY
             local rarityPassed = true
             if #activeRarities > 0 then
                 rarityPassed = false
@@ -121,7 +130,7 @@ return function(Window, Fluent)
                 end
             end
 
-            -- 3. Lọc Stat & %
+            -- 3. LỌC STATS & %
             local statPassed = true
             if #activeStats > 0 then
                 statPassed = false
@@ -133,6 +142,7 @@ return function(Window, Fluent)
                             statPassed = true
                             break
                         else
+                            -- Tìm số % ngay sau tên dòng chỉ số đó
                             for line in lowerText:gmatch("[^\r\n]+") do
                                 if string.find(line, cleanStat, 1, true) then
                                     local num = line:match("(%d+)%%") or line:match("(%d+)")
@@ -148,6 +158,7 @@ return function(Window, Fluent)
                 end
             end
 
+            -- Bắt buộc phải thỏa mãn CẢ HAI (Rarity AND Stat) nếu có tích chọn
             return rarityPassed and statPassed
         end
 
