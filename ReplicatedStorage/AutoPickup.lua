@@ -68,10 +68,10 @@ return function(Window, Fluent)
         local function passesFilter(model, prompt)
             if not model then return false end
 
-            -- 1. Lấy dữ liệu đã tích chọn từ Fluent UI chuẩn xác
-            local rawSkills = (SelectSkills and SelectSkills.Value) or {}
-            local rawRarities = (SelectRarity and SelectRarity.Value) or {}
-            local rawStats = (SelectStats and SelectStats.Value) or {}
+            -- 1. Lấy dữ liệu chính xác từ Options Fluent (Hỗ trợ tốt cho SaveManager)
+            local rawSkills = (Fluent.Options and Fluent.Options.SelectSkills and Fluent.Options.SelectSkills.Value) or SelectSkills.Value or {}
+            local rawRarities = (Fluent.Options and Fluent.Options.SelectRarity and Fluent.Options.SelectRarity.Value) or SelectRarity.Value or {}
+            local rawStats = (Fluent.Options and Fluent.Options.SelectStats and Fluent.Options.SelectStats.Value) or SelectStats.Value or {}
 
             local activeSkills = {}
             for name, enabled in pairs(rawSkills) do
@@ -88,16 +88,17 @@ return function(Window, Fluent)
                 if enabled == true then table.insert(activeStats, name) end
             end
 
-            -- Nếu không tích cái nào -> Nhặt hết
+            -- Nếu không tích cái nào -> Nhặt tất cả
             if #activeSkills == 0 and #activeRarities == 0 and #activeStats == 0 then
                 return true
             end
 
-            -- 2. Đọc Attribute từ ảnh Studio
-            local itemTier = tostring(model:GetAttribute("ItemTier") or ""):lower()
-            local enchantName = tostring(model:GetAttribute("EnchantName") or ""):lower()
-            local enchantVal = tonumber(model:GetAttribute("EnchantValue")) or tonumber(model:GetAttribute("EnchantBaseValue")) or 0
-            local skillId = tostring(model:GetAttribute("SkillId") or ""):lower()
+            -- 2. Đọc Attribute từ món đồ (Check từ Model & Parent)
+            local itemTier = tostring(model:GetAttribute("ItemTier") or (model.Parent and model.Parent:GetAttribute("ItemTier")) or ""):lower()
+            local enchantName = tostring(model:GetAttribute("EnchantName") or (model.Parent and model.Parent:GetAttribute("EnchantName")) or ""):lower()
+            local enchantVal = tonumber(model:GetAttribute("EnchantValue")) or tonumber(model:GetAttribute("EnchantBaseValue")) 
+                             or (model.Parent and tonumber(model.Parent:GetAttribute("EnchantValue"))) or 0
+            local skillId = tostring(model:GetAttribute("SkillId") or (model.Parent and model.Parent:GetAttribute("SkillId")) or ""):lower()
 
             local fullModelName = (model.Name .. " " .. (prompt and prompt.ObjectText or "")):lower()
 
