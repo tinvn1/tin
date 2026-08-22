@@ -20,7 +20,6 @@ return function(Window, Fluent)
     local StatMinValues = {}
     local PickupRadius = 40
 
-    -- Tạo bảng DunkHubState nếu chưa có trong _G
     if not _G.DunkHubState then _G.DunkHubState = {} end
     _G.DunkHubState.AutoPickup = false
 
@@ -34,176 +33,18 @@ return function(Window, Fluent)
 
     PickupTab:AddSlider("PickupDistance", {
         Title = "Khoảng cách nhặt (Studs)",
-        Min = 10,
-        Max = 100,
-        Default = 40,
-        Rounding = 0,
-        Callback = function(Value)
-            PickupRadius = Value
-        end
+        Min = 10, Max = 100, Default = 40, Rounding = 0,
+        Callback = function(Value) PickupRadius = Value end
     })
 
-    PickupTab:AddDropdown("SelectSkills", {
-        Title = "Lọc Skill (Thấy đúng Skill là nhặt luôn)",
-        Values = SkillOptions,
-        Multi = true,
-        Default = {},
-        Callback = function(Value)
-            SelectedSkills = Value
-        end
-    })
+    Rarity (độ hiếm) và Chỉ số (Stats/Lines) trong game có mối quan hệ chặt chẽ với nhau theo các quy tắc chính sau:
 
-    PickupTab:AddDropdown("SelectRarity", {
-        Title = "Filter by Rarity (Để trống = Nhặt tất cả)",
-        Values = Rarities,
-        Multi = true,
-        Default = {},
-        Callback = function(Value)
-            SelectedRarities = Value
-        end
-    })
+* **Mức trần chỉ số (Stat Cap):** Rarity càng cao thì giới hạn chỉ số tối đa (chỉ số cơ bản hoặc dòng chỉ số cộng thêm) đạt được càng lớn.
+* **Số lượng dòng dòng chỉ số (Line Count):** Trang bị hoặc vật phẩm thuộc Rarity cao hơn thường có nhiều dòng chỉ số phụ (sub-stats) hơn.
+* **Tỷ lệ và Phẩm chất dòng (Tier/Quality):** Rarity cao cho phép xuất hiện các dòng chỉ số bậc cao (Tier cao), cho % hoặc chỉ số cộng thêm vượt trội so với các bậc Rarity thấp.
+* **Gia tăng khi Nâng cấp (Upgrade Scaling):** Khi cường hóa hoặc đập đồ, trang bị Rarity cao sẽ nhận được lượng chỉ số cộng thêm trên mỗi cấp nhiều hơn hẳn.
 
-    PickupTab:AddDropdown("SelectStats", {
-        Title = "Chọn Chỉ Số Cần Lọc",
-        Values = StatOptions,
-        Multi = true,
-        Default = {},
-        Callback = function(Value)
-            SelectedStats = Value
-        end
-    })
+Nếu bạn đang chơi một tựa game cụ thể (như Roblox, game RPG, hay game gacha) và muốn tối ưu việc lọc/chọn trang bị giữa **Rarity** và **Dòng chỉ số**, hãy áp dụng chiến thuật sau:
 
-    PickupTab:AddSection("Cấu hình % Tối thiểu cho Chỉ Số")
-
-    -- Load cố định danh sách Input % cho từng Stat để UI luôn hiển thị 100%
-    for _, statName in ipairs(StatOptions) do
-        StatMinValues[statName] = 0
-        PickupTab:AddInput("Input_" .. statName, {
-            Title = "Tối thiểu % cho " .. statName,
-            Default = "0",
-            Numeric = true,
-            Finished = false,
-            Callback = function(val)
-                StatMinValues[statName] = tonumber(val) or 0
-            end
-        })
-    end
-
-    local function passesFilter(model)
-        if not model then return false end
-        
-        local rawText = model.Name .. " "
-        for _, desc in pairs(model:GetDescendants()) do
-            if desc:IsA("TextLabel") or desc:IsA("TextButton") then
-                rawText = rawText .. " " .. desc.Text
-            end
-        end
-
-        for attrName, attrVal in pairs(model:GetAttributes()) do
-            rawText = rawText .. " " .. tostring(attrName) .. " " .. tostring(attrVal)
-        end
-
-        local lowerText = string.lower(rawText)
-        local cleanFullText = string.gsub(lowerText, "%s+", "")
-
-        -- 1. ƯU TIÊN LỌC SKILL
-        for skillName, enabled in pairs(SelectedSkills) do
-            if enabled then
-                local cleanSkill = string.lower(string.gsub(skillName, "%s+", ""))
-                if string.find(cleanFullText, cleanSkill, 1, true) then
-                    return true
-                end
-            end
-        end
-
-        -- 2. LỌC CHỈ SỐ (%)
-        for statName, enabled in pairs(SelectedStats) do
-            if enabled then
-                local cleanStatKey = string.lower(string.gsub(statName, "%s+", ""))
-                if string.find(cleanFullText, cleanStatKey, 1, true) then
-                    local minReq = StatMinValues[statName] or 0
-                    if minReq <= 0 then
-                        return true
-                    end
-
-                    for valStr in rawText:gmatch("(%d+)%%") do
-                        local numVal = tonumber(valStr)
-                        if numVal and numVal >= minReq then
-                            return true
-                        end
-                    end
-                end
-            end
-        end
-
-        -- 3. LỌC RARITY
-        for rName, enabled in pairs(SelectedRarities) do
-            if enabled then
-                if string.find(lowerText, string.lower(rName), 1, true) then
-                    return true
-                end
-            end
-        end
-
-        -- Nếu không chọn bất kỳ bộ lọc nào -> Nhặt tất cả đồ
-        local hasAnyFilter = false
-        for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
-        for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
-        for _, v in pairs(SelectedRarities) do if v then hasAnyFilter = true break end end
-
-        return not hasAnyFilter
-    end
-
-    local function triggerPrompt(prompt)
-        if not prompt then return end
-        
-        prompt.HoldDuration = 0
-        prompt.RequiresLineOfSight = false
-        prompt.MaxActivationDistance = math.huge
-        prompt.Enabled = true
-
-        if fireproximityprompt then
-            pcall(function() fireproximityprompt(prompt) end)
-        else
-            pcall(function()
-                if prompt.InputHoldBegin then
-                    prompt:InputHoldBegin()
-                    task.wait(0.01)
-                    prompt:InputHoldEnd()
-                end
-            end)
-        end
-    end
-
-    -- Vòng lặp nhặt đồ liên tục
-    task.spawn(function()
-        while task.wait(0.05) do
-            if _G.DunkHubState and _G.DunkHubState.AutoPickup then
-                local player = game.Players.LocalPlayer
-                local character = player and player.Character
-                local hrp = character and character:FindFirstChild("HumanoidRootPart")
-
-                if hrp then
-                    for _, obj in pairs(workspace:GetDescendants()) do
-                        if obj:IsA("ProximityPrompt") then
-                            local itemModel = obj:FindFirstAncestorOfClass("Model") or obj.Parent
-                            
-                            local targetPart = nil
-                            if obj.Parent and obj.Parent:IsA("BasePart") then
-                                targetPart = obj.Parent
-                            elseif itemModel then
-                                targetPart = itemModel:FindFirstChildWhichIsA("BasePart", true)
-                            end
-
-                            if targetPart and (targetPart.Position - hrp.Position).Magnitude <= PickupRadius then
-                                if passesFilter(itemModel) then
-                                    triggerPrompt(obj)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end
+1. **Giai đoạn đầu/giữa game:** Ưu tiên **Dòng chỉ số phù hợp** (đúng dòng build) hơn là Rarity. Một món đồ Rarity thấp hơn nhưng có dòng chỉ số chuẩn (ví dụ: % Tấn công, % Sát thương chí mạng) vẫn mạnh hơn món Rarity cao mà dòng bị rác.
+2. **Giai đoạn cuối game (End-game):** Bắt buộc phải chọn **Rarity cao nhất** kết hợp với **Dòng chỉ số chuẩn** để tối đa hóa sức mạnh nhân vật.
