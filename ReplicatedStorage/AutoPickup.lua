@@ -1,6 +1,5 @@
 return function(Window, Fluent, sessionID)
     local PickupTab = Window:AddTab({ Title = "Auto Pickup", Icon = "shopping-bag" })
-    local Vim = game:GetService("VirtualInputManager")
 
     local Rarities = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
     local StatOptions = { 
@@ -95,11 +94,10 @@ return function(Window, Fluent, sessionID)
         end
     })
 
-    -- KIỂM TRA ĐIỀU KIỆN LỌC
+    -- LỌC VĂN BẢN ĐỒ
     local function passesFilter(item)
         if not item then return false end
 
-        -- Lấy toàn bộ văn bản hiển thị từ ItemDropGui / Model
         local rawText = item.Name .. " "
         for _, desc in pairs(item:GetDescendants()) do
             if desc:IsA("TextLabel") or desc:IsA("TextButton") then
@@ -110,7 +108,7 @@ return function(Window, Fluent, sessionID)
         local lowerText = string.lower(rawText)
         local cleanFullText = string.gsub(lowerText, "%s+", "")
 
-        -- 1. LỌC SKILL
+        -- 1. SKILL
         for skillName, enabled in pairs(SelectedSkills) do
             if enabled then
                 local cleanSkill = string.lower(string.gsub(skillName, "%s+", ""))
@@ -120,7 +118,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- 2. LỌC STATS & %
+        -- 2. STATS & %
         for statName, enabled in pairs(SelectedStats) do
             if enabled then
                 local cleanStatKey = string.lower(string.gsub(statName, "%s+", ""))
@@ -140,7 +138,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- 3. LỌC RARITY
+        -- 3. RARITY
         for rName, enabled in pairs(SelectedRarities) do
             if enabled then
                 if string.find(lowerText, string.lower(rName), 1, true) then
@@ -149,7 +147,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- Nếu không bật bộ lọc nào -> Nhặt tất cả
+        -- Nếu không chọn filter nào -> Nhặt hết
         local hasAnyFilter = false
         for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
         for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
@@ -158,22 +156,46 @@ return function(Window, Fluent, sessionID)
         return not hasAnyFilter
     end
 
-    -- THỰC THI NHẶT ĐỒ
-    local function triggerPickup(prompt)
-        if not prompt then return end
+    -- THỰC THI NHẶT ĐỒ (KẾT HỢP DÒ CẢ REMOTE VÀ PROXIMITY)
+    local function triggerPickup(item)
+        if not item then return end
 
-        if fireproximityprompt then
-            pcall(function() fireproximityprompt(prompt) end)
+        -- Cách 1: Thử kích hoạt ProximityPrompt chuẩn
+        local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt and prompt.Enabled then
+            if fireproximityprompt then
+                pcall(function() fireproximityprompt(prompt) end)
+            end
+            pcall(function()
+                if prompt.InputHoldBegin then
+                    prompt:InputHoldBegin()
+                    prompt:InputHoldEnd()
+                end
+            end)
         end
 
-        pcall(function()
-            Vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            task.wait(0.01)
-            Vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-        end)
+        -- Cách 2: Gọi RemoteEvent / RemoteFunction nhặt đồ bên trong Item
+        for _, obj in pairs(item:GetDescendants()) do
+            if obj:IsA("RemoteEvent") then
+                pcall(function() obj:FireServer() end)
+                pcall(function() obj:FireServer(item) end)
+            elseif obj:IsA("RemoteFunction") then
+                pcall(function() obj:InvokeServer() end)
+                pcall(function() obj:InvokeServer(item) end)
+            end
+        end
+
+        -- Cách 3: Tìm RemoteEvent chung trong ReplicatedStorage nếu có
+        local repStorage = game:GetService("ReplicatedStorage")
+        for _, name in pairs({"Pickup", "PickUp", "CollectItem", "PickupItem", "ItemPickup"}) do
+            local remote = repStorage:FindFirstChild(name, true)
+            if remote and remote:IsA("RemoteEvent") then
+                pcall(function() remote:FireServer(item) end)
+            end
+        end
     end
 
-    -- VÒNG LẶP DÒ QUÉT TẬP TRUNG VÀO WORKSPACE.ITEMDROP
+    -- VÒNG LẶP DÒ QUÉT ITEMDROP
     task.spawn(function()
         while task.wait(0.05) do
             if _G.DunkHubSession ~= sessionID then break end
@@ -190,10 +212,7 @@ return function(Window, Fluent, sessionID)
 
                         if part and (part.Position - hrp.Position).Magnitude <= PickupRadius then
                             if passesFilter(item) then
-                                local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                if prompt and prompt.Enabled then
-                                    triggerPickup(prompt)
-                                end
+                                triggerPickup(item)
                             end
                         end
                     end
