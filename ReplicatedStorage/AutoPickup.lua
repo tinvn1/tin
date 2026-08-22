@@ -55,26 +55,80 @@ return function(Window, Fluent)
         end
     })
 
-    -- Hàm ép buộc kích hoạt ProximityPrompt (Bypass triệt để)
-    local function forceTriggerPrompt(prompt)
-        if not prompt or not prompt.Enabled then return end
+    -- Hàm kiểm tra Rarity và Stats theo bộ lọc
+    local function passesFilter(model)
+        if not model then return false end
 
-        -- Bỏ qua thời gian giữ phím E
-        local originalHold = prompt.HoldDuration
+        -- Lấy toàn bộ chữ hiển thị trên Billboard/TextLabel hoặc Attributes
+        local fullText = ""
+        
+        for _, desc in pairs(model:GetDescendants()) do
+            if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+                fullText = fullText .. " " .. string.lower(desc.Text)
+            end
+        end
+
+        for attrName, attrVal in pairs(model:GetAttributes()) do
+            fullText = fullText .. " " .. string.lower(tostring(attrName)) .. " " .. string.lower(tostring(attrVal))
+        end
+
+        -- 1. Kiểm tra Lọc Rarity
+        local activeRarities = {}
+        for rarity, state in pairs(SelectedRarities) do
+            if state == true then
+                table.insert(activeRarities, string.lower(rarity))
+            end
+        end
+
+        if #activeRarities > 0 then
+            local matchRarity = false
+            for _, rName in ipairs(activeRarities) do
+                if string.find(fullText, rName) then
+                    matchRarity = true
+                    break
+                end
+            end
+            if not matchRarity then return false end
+        end
+
+        -- 2. Kiểm tra Lọc Stats
+        local activeStats = {}
+        for stat, state in pairs(SelectedStats) do
+            if state == true then
+                table.insert(activeStats, string.lower(stat))
+            end
+        end
+
+        if #activeStats > 0 then
+            local matchStat = false
+            for _, sName in ipairs(activeStats) do
+                if string.find(fullText, sName) then
+                    matchStat = true
+                    break
+                end
+            end
+            if not matchStat then return false end
+        end
+
+        return true
+    end
+
+    -- Hàm nhặt vật phẩm
+    local function triggerPrompt(prompt)
+        if not prompt or not prompt.Enabled then return end
+        local origHold = prompt.HoldDuration
         prompt.HoldDuration = 0
 
-        -- Kích hoạt theo 3 cách song song
         pcall(function() fireproximityprompt(prompt) end)
-        
         pcall(function()
             if prompt.InputHoldBegin then
                 prompt:InputHoldBegin()
-                task.wait(0.02)
+                task.wait(0.01)
                 prompt:InputHoldEnd()
             end
         end)
 
-        prompt.HoldDuration = originalHold
+        prompt.HoldDuration = origHold
     end
 
     -- Vòng lặp nhặt đồ
@@ -88,14 +142,13 @@ return function(Window, Fluent)
                 if hrp then
                     for _, obj in pairs(workspace:GetDescendants()) do
                         if obj:IsA("ProximityPrompt") then
-                            local part = obj.Parent
-                            if part and part:IsA("BasePart") then
-                                local dist = (part.Position - hrp.Position).Magnitude
-                                if dist <= PickupRadius then
-                                    forceTriggerPrompt(obj)
+                            local itemModel = obj:FindFirstAncestorOfClass("Model") or obj.Parent
+                            local part = obj.Parent:IsA("BasePart") and obj.Parent or hrp
+
+                            if itemModel and (part.Position - hrp.Position).Magnitude <= PickupRadius then
+                                if passesFilter(itemModel) then
+                                    triggerPrompt(obj)
                                 end
-                            else
-                                forceTriggerPrompt(obj)
                             end
                         end
                     end
