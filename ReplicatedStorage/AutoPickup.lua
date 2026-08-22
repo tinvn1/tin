@@ -95,24 +95,22 @@ return function(Window, Fluent, sessionID)
         end
     })
 
-    -- LOGIC BỘ LỌC ĐỘC LẬP
-    local function passesFilter(itemModel)
-        if not itemModel then return false end
+    -- KIỂM TRA ĐIỀU KIỆN LỌC
+    local function passesFilter(item)
+        if not item then return false end
 
-        local rawText = itemModel.Name .. " "
-        for _, desc in pairs(itemModel:GetDescendants()) do
+        -- Lấy toàn bộ văn bản hiển thị từ ItemDropGui / Model
+        local rawText = item.Name .. " "
+        for _, desc in pairs(item:GetDescendants()) do
             if desc:IsA("TextLabel") or desc:IsA("TextButton") then
                 rawText = rawText .. " " .. desc.Text
             end
-        end
-        for attrName, attrVal in pairs(itemModel:GetAttributes()) do
-            rawText = rawText .. " " .. tostring(attrName) .. " " .. tostring(attrVal)
         end
 
         local lowerText = string.lower(rawText)
         local cleanFullText = string.gsub(lowerText, "%s+", "")
 
-        -- ĐIỀU KIỆN 1: SKILL (Khớp Skill -> NHẶT)
+        -- 1. LỌC SKILL
         for skillName, enabled in pairs(SelectedSkills) do
             if enabled then
                 local cleanSkill = string.lower(string.gsub(skillName, "%s+", ""))
@@ -122,18 +120,16 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- ĐIỀU KIỆN 2: STATS & % TỐI THIỂU (Đạt % -> NHẶT)
+        -- 2. LỌC STATS & %
         for statName, enabled in pairs(SelectedStats) do
             if enabled then
                 local cleanStatKey = string.lower(string.gsub(statName, "%s+", ""))
-
                 if string.find(cleanFullText, cleanStatKey, 1, true) then
                     local minReq = StatMinValues[statName] or 0
                     if minReq <= 0 then
                         return true
                     end
 
-                    -- Bắt mọi số có % đứng sau hoặc đi kèm
                     for valStr in rawText:gmatch("(%d+)%%") do
                         local numVal = tonumber(valStr)
                         if numVal and numVal >= minReq then
@@ -144,7 +140,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- ĐIỀU KIỆN 3: RARITY (Đúng Rarity -> NHẶT)
+        -- 3. LỌC RARITY
         for rName, enabled in pairs(SelectedRarities) do
             if enabled then
                 if string.find(lowerText, string.lower(rName), 1, true) then
@@ -153,7 +149,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- Nếu người dùng chưa chọn bất kỳ filter nào -> Nhặt hết đồ xung quanh
+        -- Nếu không bật bộ lọc nào -> Nhặt tất cả
         local hasAnyFilter = false
         for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
         for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
@@ -163,8 +159,8 @@ return function(Window, Fluent, sessionID)
     end
 
     -- THỰC THI NHẶT ĐỒ
-    local function triggerPrompt(prompt)
-        if not prompt or not prompt.Enabled then return end
+    local function triggerPickup(prompt)
+        if not prompt then return end
 
         if fireproximityprompt then
             pcall(function() fireproximityprompt(prompt) end)
@@ -177,7 +173,7 @@ return function(Window, Fluent, sessionID)
         end)
     end
 
-    -- VÒNG LẶP CHÍNH
+    -- VÒNG LẶP DÒ QUÉT TẬP TRUNG VÀO WORKSPACE.ITEMDROP
     task.spawn(function()
         while task.wait(0.05) do
             if _G.DunkHubSession ~= sessionID then break end
@@ -186,16 +182,17 @@ return function(Window, Fluent, sessionID)
                 local player = game.Players.LocalPlayer
                 local character = player and player.Character
                 local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                local itemDropFolder = workspace:FindFirstChild("itemdrop")
 
-                if hrp then
-                    for _, obj in pairs(workspace:GetDescendants()) do
-                        if obj:IsA("ProximityPrompt") then
-                            local itemModel = obj:FindFirstAncestorOfClass("Model") or obj.Parent
-                            local part = obj.Parent:IsA("BasePart") and obj.Parent or hrp
+                if hrp and itemDropFolder then
+                    for _, item in pairs(itemDropFolder:GetChildren()) do
+                        local part = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart") or item:FindFirstChild("PrimaryPart")
 
-                            if itemModel and (part.Position - hrp.Position).Magnitude <= PickupRadius then
-                                if passesFilter(itemModel) then
-                                    triggerPrompt(obj)
+                        if part and (part.Position - hrp.Position).Magnitude <= PickupRadius then
+                            if passesFilter(item) then
+                                local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                if prompt and prompt.Enabled then
+                                    triggerPickup(prompt)
                                 end
                             end
                         end
