@@ -1,19 +1,26 @@
 return function(Window, Fluent, sessionID)
     local PickupTab = Window:AddTab({ Title = "Auto Pickup", Icon = "shopping-bag" })
 
-    -- Danh sách chỉ số chuẩn
     local Rarities = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
     local StatOptions = { 
-        "Crit Chance", "Crit Damage", "Damage", 
-        "Mana Regen", "Gold Bonus", "Luck", 
-        "Health", "Reflect Damage", "Slash", "Damage Reduction", "Immunity Chance"
+        "Damage", "Health", "Crit Chance", "Crit Damage", 
+        "Mana Regen", "Gold Bonus", "Luck", "Reflect", "Slash", "Immunity"
+    }
+    local SkillOptions = {
+        "Star Fire", "Whirl Pool", "Summon", "Meteo",
+        "Prime Ice Sword", "Ice Sword", "Lighting Staff",
+        "Pistol", "Rock Dragon", "Immunity", "Fire Sword",
+        "Health", "Ring Water", "Armor Water", "Slash"
     }
 
     local SelectedRarities = {}
+    local SelectedSkills = {}
     local SelectedStats = {}
-    local PickupRadius = 40
+    local StatMinValues = {} -- Lưu giá trị % tối thiểu riêng cho từng Stat
+    local DynamicInputUI = {} -- Quản lý ô Input động
+    local PickupRadius = 50
 
-    -- UI Controls
+    -- 1. CẤU HÌNH CHUNG
     PickupTab:AddToggle("ToggleAutoPickup", {
         Title = "Enable Auto Pickup",
         Default = false,
@@ -26,15 +33,26 @@ return function(Window, Fluent, sessionID)
         Title = "Khoảng cách nhặt (Studs)",
         Min = 10,
         Max = 100,
-        Default = 40,
+        Default = 50,
         Rounding = 0,
         Callback = function(Value)
             PickupRadius = Value
         end
     })
 
+    -- 2. LỌC SKILL & RARITY
+    PickupTab:AddDropdown("SelectSkills", {
+        Title = "Lọc Skill (Thấy là nhặt luôn)",
+        Values = SkillOptions,
+        Multi = true,
+        Default = {},
+        Callback = function(Value)
+            SelectedSkills = Value
+        end
+    })
+
     PickupTab:AddDropdown("SelectRarity", {
-        Title = "Filter by Rarity (Để trống = Bỏ qua)",
+        Title = "Lọc Rarity",
         Values = Rarities,
         Multi = true,
         Default = {},
@@ -43,83 +61,112 @@ return function(Window, Fluent, sessionID)
         end
     })
 
+    -- 3. LỌC STATS DYNAMIC (% RIÊNG CHO TỪNG STAT)
+    local StatSection = PickupTab:AddSection("Cấu hình Chỉ Số (%)")
+
     PickupTab:AddDropdown("SelectStats", {
-        Title = "Filter by Stats (BẮT BUỘC TRÙNG CHỈ SỐ)",
+        Title = "Chọn Chỉ Số Cần Lọc",
         Values = StatOptions,
         Multi = true,
         Default = {},
         Callback = function(Value)
             SelectedStats = Value
+
+            -- Tạo hoặc xóa ô nhập % dựa trên các Stat được chọn
+            for statName, isSelected in pairs(Value) do
+                if isSelected then
+                    if not DynamicInputUI[statName] then
+                        StatMinValues[statName] = 0
+                        DynamicInputUI[statName] = PickupTab:AddInput("Input_" .. statName, {
+                            Title = "Tối thiểu % cho " .. statName,
+                            Default = "0",
+                            Numeric = true,
+                            Finished = false,
+                            Callback = function(val)
+                                StatMinValues[statName] = tonumber(val) or 0
+                            end
+                        })
+                    end
+                else
+                    if DynamicInputUI[statName] then
+                        pcall(function() DynamicInputUI[statName]:Destroy() end)
+                        DynamicInputUI[statName] = nil
+                        StatMinValues[statName] = nil
+                    end
+                end
+            end
         end
     })
 
-    -- Hàm làm sạch chuỗi (xóa khoảng trắng, ký tự đặc biệt, chuyển chữ thường)
-    local function cleanString(str)
-        if not str then return "" end
-        return string.lower(string.gsub(tostring(str), "[%s%p]", ""))
-    end
-
-    -- Logic kiểm tra lọc chính xác
+    -- LOGIC KIỂM TRA MÓN ĐỒ
     local function passesFilter(itemModel)
         if not itemModel then return false end
 
-        -- Gom toàn bộ chữ từ Billboard, TextLabel, Name, Attributes
         local rawText = itemModel.Name .. " "
-        
-        for _, v in pairs(itemModel:GetDescendants()) do
-            if v:IsA("TextLabel") or v:IsA("TextButton") then
-                rawText = rawText .. " " .. v.Text
+        for _, desc in pairs(itemModel:GetDescendants()) do
+            if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+                rawText = rawText .. " " .. desc.Text
             end
         end
-
         for attrName, attrVal in pairs(itemModel:GetAttributes()) do
             rawText = rawText .. " " .. tostring(attrName) .. " " .. tostring(attrVal)
         end
 
-        local cleanedItemText = cleanString(rawText)
+        local lowerText = string.lower(rawText)
 
-        -- 1. Lọc theo Rarity (Nếu có chọn)
-        local activeRarities = {}
+        -- Rule 1: SKILL -> Thấy là nhặt ngay
+        for skillName, enabled in pairs(SelectedSkills) do
+            if enabled then
+                local cleanSkill = string.lower(string.gsub(skillName, "%s+", ""))
+                local cleanFull = string.lower(string.gsub(rawText, "%s+", ""))
+                if string.find(cleanFull, cleanSkill, 1, true) then
+                    return true
+                end
+            end
+        end
+
+        -- Rule 2: STATS -> Kiểm tra từng Stat & % tối thiểu tương ứng
+        for statName, enabled in pairs(SelectedStats) do
+            if enabled then
+                local cleanStatKey = string.lower(string.gsub(statName, "%s+", ""))
+                local cleanFullText = string.lower(string.gsub(rawText, "%s+", ""))
+
+                if string.find(cleanFullText, cleanStatKey, 1, true) then
+                    local minReq = StatMinValues[statName] or 0
+                    if minReq <= 0 then
+                        return true
+                    end
+
+                    -- Bắt số % tương ứng trong đoạn văn bản
+                    for valStr in rawText:gmatch("(%d+)%%") do
+                        local numVal = tonumber(valStr)
+                        if numVal and numVal >= minReq then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Rule 3: RARITY
         for rName, enabled in pairs(SelectedRarities) do
             if enabled then
-                table.insert(activeRarities, cleanString(rName))
-            end
-        end
-
-        if #activeRarities > 0 then
-            local matchRarity = false
-            for _, cleanRarity in ipairs(activeRarities) do
-                if string.find(cleanedItemText, cleanRarity) then
-                    matchRarity = true
-                    break
+                if string.find(lowerText, string.lower(rName), 1, true) then
+                    return true
                 end
             end
-            if not matchRarity then return false end
         end
 
-        -- 2. Lọc theo Stat (Nếu có chọn)
-        local activeStats = {}
-        for sName, enabled in pairs(SelectedStats) do
-            if enabled then
-                table.insert(activeStats, cleanString(sName))
-            end
-        end
+        -- Nếu không chọn bất kỳ bộ lọc nào -> Nhặt hết
+        local hasAnyFilter = false
+        for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
+        for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
+        for _, v in pairs(SelectedRarities) do if v then hasAnyFilter = true break end end
 
-        if #activeStats > 0 then
-            local matchStat = false
-            for _, cleanStat in ipairs(activeStats) do
-                if string.find(cleanedItemText, cleanStat) then
-                    matchStat = true
-                    break
-                end
-            end
-            if not matchStat then return false end
-        end
-
-        return true
+        return not hasAnyFilter
     end
 
-    -- Hàm kích hoạt nút Pick Up (E)
+    -- KÍCH HOẠT NHẶT ĐỒ
     local function triggerPrompt(prompt)
         if not prompt or not prompt.Enabled then return end
         local origHold = prompt.HoldDuration
@@ -137,7 +184,7 @@ return function(Window, Fluent, sessionID)
         prompt.HoldDuration = origHold
     end
 
-    -- Vòng lặp nhặt đồ
+    -- VÒNG LẶP CHÍNH
     task.spawn(function()
         while task.wait(0.05) do
             if _G.DunkHubSession ~= sessionID then break end
