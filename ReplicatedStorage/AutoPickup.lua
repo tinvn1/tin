@@ -1,7 +1,6 @@
 return function(Window, Fluent)
     local PickupTab = Window:AddTab({ Title = "Auto Pickup", Icon = "shopping-bag" })
 
-    -- Options Data
     local Rarities = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical" }
     local StatOptions = { 
         "Crit Chance", "Crit Damage", "Damage", 
@@ -9,18 +8,15 @@ return function(Window, Fluent)
         "Health", "ReflectDamage", "Slash" 
     }
 
-    -- Settings State
     local SelectedRarities = {}
     local SelectedStats = {}
-    local AutoPickupEnabled = false
     local PickupRadius = 40
 
-    -- UI Elements
     PickupTab:AddToggle("ToggleAutoPickup", {
         Title = "Enable Auto Pickup",
         Default = false,
         Callback = function(Value)
-            AutoPickupEnabled = Value
+            _G.DunkHubState.AutoPickup = Value
         end
     })
 
@@ -55,11 +51,8 @@ return function(Window, Fluent)
         end
     })
 
-    -- Hàm kiểm tra Rarity và Stats theo bộ lọc
     local function passesFilter(model)
         if not model then return false end
-
-        -- Lấy toàn bộ chữ hiển thị trên Billboard/TextLabel hoặc Attributes
         local fullText = ""
         
         for _, desc in pairs(model:GetDescendants()) do
@@ -72,40 +65,28 @@ return function(Window, Fluent)
             fullText = fullText .. " " .. string.lower(tostring(attrName)) .. " " .. string.lower(tostring(attrVal))
         end
 
-        -- 1. Kiểm tra Lọc Rarity
         local activeRarities = {}
         for rarity, state in pairs(SelectedRarities) do
-            if state == true then
-                table.insert(activeRarities, string.lower(rarity))
-            end
+            if state == true then table.insert(activeRarities, string.lower(rarity)) end
         end
 
         if #activeRarities > 0 then
             local matchRarity = false
             for _, rName in ipairs(activeRarities) do
-                if string.find(fullText, rName) then
-                    matchRarity = true
-                    break
-                end
+                if string.find(fullText, rName) then matchRarity = true break end
             end
             if not matchRarity then return false end
         end
 
-        -- 2. Kiểm tra Lọc Stats
         local activeStats = {}
         for stat, state in pairs(SelectedStats) do
-            if state == true then
-                table.insert(activeStats, string.lower(stat))
-            end
+            if state == true then table.insert(activeStats, string.lower(stat)) end
         end
 
         if #activeStats > 0 then
             local matchStat = false
             for _, sName in ipairs(activeStats) do
-                if string.find(fullText, sName) then
-                    matchStat = true
-                    break
-                end
+                if string.find(fullText, sName) then matchStat = true break end
             end
             if not matchStat then return false end
         end
@@ -113,7 +94,6 @@ return function(Window, Fluent)
         return true
     end
 
-    -- Hàm nhặt vật phẩm
     local function triggerPrompt(prompt)
         if not prompt or not prompt.Enabled then return end
         local origHold = prompt.HoldDuration
@@ -131,10 +111,13 @@ return function(Window, Fluent)
         prompt.HoldDuration = origHold
     end
 
-    -- Vòng lặp nhặt đồ
+    -- Vòng lặp tự động hủy nếu script bị load lại
     task.spawn(function()
         while task.wait(0.05) do
-            if AutoPickupEnabled then
+            -- Nếu DunkHub bị load lại (State bị reset) thì thoát vòng lặp cũ ngay lập tức
+            if not _G.DunkHubLoaded then break end
+
+            if _G.DunkHubState.AutoPickup then
                 local player = game.Players.LocalPlayer
                 local character = player and player.Character
                 local hrp = character and character:FindFirstChild("HumanoidRootPart")
