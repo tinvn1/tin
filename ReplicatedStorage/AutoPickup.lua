@@ -51,7 +51,7 @@ return function(Window, Fluent, sessionID)
     })
 
     PickupTab:AddDropdown("SelectRarity", {
-        Title = "Lọc Rarity",
+        Title = "Lọc Rarity (Nhặt mọi đồ phẩm chất này)",
         Values = Rarities,
         Multi = true,
         Default = {},
@@ -95,6 +95,7 @@ return function(Window, Fluent, sessionID)
         end
     })
 
+    -- LOGIC BỘ LỌC ĐỘC LẬP
     local function passesFilter(itemModel)
         if not itemModel then return false end
 
@@ -109,23 +110,22 @@ return function(Window, Fluent, sessionID)
         end
 
         local lowerText = string.lower(rawText)
+        local cleanFullText = string.gsub(lowerText, "%s+", "")
 
-        -- 1. ƯU TIÊN SKILL
+        -- ĐIỀU KIỆN 1: SKILL (Khớp Skill -> NHẶT)
         for skillName, enabled in pairs(SelectedSkills) do
             if enabled then
                 local cleanSkill = string.lower(string.gsub(skillName, "%s+", ""))
-                local cleanFull = string.lower(string.gsub(rawText, "%s+", ""))
-                if string.find(cleanFull, cleanSkill, 1, true) then
+                if string.find(cleanFullText, cleanSkill, 1, true) then
                     return true
                 end
             end
         end
 
-        -- 2. LỌC STATS & % TỐI THIỂU
+        -- ĐIỀU KIỆN 2: STATS & % TỐI THIỂU (Đạt % -> NHẶT)
         for statName, enabled in pairs(SelectedStats) do
             if enabled then
                 local cleanStatKey = string.lower(string.gsub(statName, "%s+", ""))
-                local cleanFullText = string.lower(string.gsub(rawText, "%s+", ""))
 
                 if string.find(cleanFullText, cleanStatKey, 1, true) then
                     local minReq = StatMinValues[statName] or 0
@@ -133,7 +133,8 @@ return function(Window, Fluent, sessionID)
                         return true
                     end
 
-                    for valStr in rawText:gmatch("%+?%s*(%d+)%%") do
+                    -- Bắt mọi số có % đứng sau hoặc đi kèm
+                    for valStr in rawText:gmatch("(%d+)%%") do
                         local numVal = tonumber(valStr)
                         if numVal and numVal >= minReq then
                             return true
@@ -143,7 +144,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
-        -- 3. LỌC RARITY
+        -- ĐIỀU KIỆN 3: RARITY (Đúng Rarity -> NHẶT)
         for rName, enabled in pairs(SelectedRarities) do
             if enabled then
                 if string.find(lowerText, string.lower(rName), 1, true) then
@@ -152,6 +153,7 @@ return function(Window, Fluent, sessionID)
             end
         end
 
+        -- Nếu người dùng chưa chọn bất kỳ filter nào -> Nhặt hết đồ xung quanh
         local hasAnyFilter = false
         for _, v in pairs(SelectedSkills) do if v then hasAnyFilter = true break end end
         for _, v in pairs(SelectedStats) do if v then hasAnyFilter = true break end end
@@ -160,34 +162,24 @@ return function(Window, Fluent, sessionID)
         return not hasAnyFilter
     end
 
-    -- HÀM KÍCH HOẠT MỚI: DÙNG NHIỀU CÁCH ĐỂ BẮT GAME PHẢI NHẶT
+    -- THỰC THI NHẶT ĐỒ
     local function triggerPrompt(prompt)
         if not prompt or not prompt.Enabled then return end
 
-        -- Cách 1: Gọi hàm gốc của Executor
         if fireproximityprompt then
             pcall(function() fireproximityprompt(prompt) end)
         end
 
-        -- Cách 2: Bấm phím E ảo bằng VirtualInputManager
         pcall(function()
             Vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            task.wait(0.02)
+            task.wait(0.01)
             Vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-        end)
-
-        -- Cách 3: Trigger sự kiện trực tiếp của ProximityPrompt
-        pcall(function()
-            if prompt.InputHoldBegin then
-                prompt:InputHoldBegin()
-                prompt:InputHoldEnd()
-            end
         end)
     end
 
     -- VÒNG LẶP CHÍNH
     task.spawn(function()
-        while task.wait(0.1) do
+        while task.wait(0.05) do
             if _G.DunkHubSession ~= sessionID then break end
 
             if _G.DunkHubState.AutoPickup then
@@ -199,7 +191,7 @@ return function(Window, Fluent, sessionID)
                     for _, obj in pairs(workspace:GetDescendants()) do
                         if obj:IsA("ProximityPrompt") then
                             local itemModel = obj:FindFirstAncestorOfClass("Model") or obj.Parent
-                            local part = obj.Parent:IsA("BasePart") and obj.Parent or obj.Parent:FindFirstChildWhichIsA("BasePart") or hrp
+                            local part = obj.Parent:IsA("BasePart") and obj.Parent or hrp
 
                             if itemModel and (part.Position - hrp.Position).Magnitude <= PickupRadius then
                                 if passesFilter(itemModel) then
